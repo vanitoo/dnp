@@ -166,15 +166,30 @@ jobs:
         run: |
           find release-assets -type f -maxdepth 3 -print
 
-      - name: Create GitHub Release
+      - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
           TAG="build-${{ github.run_number }}"
-          gh release create "$TAG" \
-            release-assets/DNP_Receipts-windows/DNP_Receipts.exe \
-            release-assets/DNP_Receipts-macos-zip/DNP_Receipts-macos.zip \
-            release-assets/DNP_Receipts-macos-dmg/DNP_Receipts-macos.dmg \
-            release-assets/DNP_Receipts-linux/DNP_Receipts-linux.tar.gz \
-            --title "DNP Receipts build ${{ github.run_number }}" \
-            --notes "Автоматическая сборка: Windows EXE, macOS ZIP/DMG, Linux archive."
+          TITLE="DNP Receipts build ${{ github.run_number }}"
+          NOTES="Автоматическая сборка: Windows EXE, macOS ZIP/DMG, Linux archive."
+
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              release-assets/DNP_Receipts-windows/DNP_Receipts.exe \
+              release-assets/DNP_Receipts-macos-zip/DNP_Receipts-macos.zip \
+              release-assets/DNP_Receipts-macos-dmg/DNP_Receipts-macos.dmg \
+              release-assets/DNP_Receipts-linux/DNP_Receipts-linux.tar.gz \
+              --repo "$REPO" \
+              --clobber
+          else
+            gh release create "$TAG" \
+              release-assets/DNP_Receipts-windows/DNP_Receipts.exe \
+              release-assets/DNP_Receipts-macos-zip/DNP_Receipts-macos.zip \
+              release-assets/DNP_Receipts-macos-dmg/DNP_Receipts-macos.dmg \
+              release-assets/DNP_Receipts-linux/DNP_Receipts-linux.tar.gz \
+              --repo "$REPO" \
+              --title "$TITLE" \
+              --notes "$NOTES"
+          fi
