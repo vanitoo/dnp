@@ -1,0 +1,3 @@
+openpyxl
+python-docx
+pywin32; platform_system == "Windows"

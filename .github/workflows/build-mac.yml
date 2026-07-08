@@ -1,0 +1,59 @@
+name: Build macOS App Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Build macOS APP
+        run: |
+          pyinstaller DNP_Receipts_mac.spec --noconfirm --clean
+
+      - name: Pack APP
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent DNP_Receipts.app DNP_Receipts-macos.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DNP_Receipts-macos
+          path: dist/DNP_Receipts-macos.zip
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="build-${{ github.run_number }}"
+          gh release create "$TAG" \
+            dist/DNP_Receipts-macos.zip \
+            --title "DNP Receipts build ${{ github.run_number }}" \
+            --notes "Автоматическая сборка macOS приложения."
+            
