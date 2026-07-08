@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   build-windows:
@@ -40,6 +41,11 @@ jobs:
         run: |
           pyinstaller --onefile --windowed --name DNP_Receipts receipt_generator.py --noconfirm --clean
 
+      - name: Show dist files
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse dist
+
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
@@ -48,7 +54,7 @@ jobs:
           if-no-files-found: error
 
   build-macos:
-    name: Build macOS APP ZIP DMG
+    name: Build macOS ZIP and DMG
     runs-on: macos-latest
 
     steps:
@@ -99,7 +105,7 @@ jobs:
           if-no-files-found: error
 
   build-linux:
-    name: Build Linux binary
+    name: Build Linux archive
     runs-on: ubuntu-latest
 
     steps:
