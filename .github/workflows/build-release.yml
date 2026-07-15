@@ -81,6 +81,24 @@ jobs:
           pyinstaller --windowed --name DNP_Receipts receipt_generator.py --noconfirm --clean --target-arch x86_64
           file dist/DNP_Receipts.app/Contents/MacOS/DNP_Receipts
 
+      - name: Ad-hoc sign macOS Intel APP
+        run: |
+          codesign --force --deep --sign - dist/DNP_Receipts.app
+
+      - name: Verify macOS Intel signature
+        run: |
+          codesign --verify --deep --strict --verbose=2 dist/DNP_Receipts.app
+          codesign --display --verbose=4 dist/DNP_Receipts.app
+
+      - name: Check macOS Intel Gatekeeper assessment
+        run: |
+          set +e
+          spctl --assess --type execute --verbose=4 dist/DNP_Receipts.app
+          STATUS=$?
+          echo "Gatekeeper assessment exit code: $STATUS"
+          echo "Ad-hoc signed applications may still be rejected until Developer ID signing and notarization are configured."
+          exit 0
+
       - name: Pack macOS Intel ZIP
         run: |
           cd dist
@@ -139,6 +157,24 @@ jobs:
         run: |
           pyinstaller --windowed --name DNP_Receipts receipt_generator.py --noconfirm --clean --target-arch arm64
           file dist/DNP_Receipts.app/Contents/MacOS/DNP_Receipts
+
+      - name: Ad-hoc sign macOS Apple Silicon APP
+        run: |
+          codesign --force --deep --sign - dist/DNP_Receipts.app
+
+      - name: Verify macOS Apple Silicon signature
+        run: |
+          codesign --verify --deep --strict --verbose=2 dist/DNP_Receipts.app
+          codesign --display --verbose=4 dist/DNP_Receipts.app
+
+      - name: Check macOS Apple Silicon Gatekeeper assessment
+        run: |
+          set +e
+          spctl --assess --type execute --verbose=4 dist/DNP_Receipts.app
+          STATUS=$?
+          echo "Gatekeeper assessment exit code: $STATUS"
+          echo "Ad-hoc signed applications may still be rejected until Developer ID signing and notarization are configured."
+          exit 0
 
       - name: Pack macOS Apple Silicon ZIP
         run: |
@@ -236,7 +272,7 @@ jobs:
         run: |
           TAG="build-${{ github.run_number }}"
           TITLE="DNP Receipts build ${{ github.run_number }}"
-          NOTES="Windows EXE, Linux archive и две версии macOS: Intel для Mac до перехода на M1, Apple Silicon для M1/M2/M3/M4. Рекомендуемый формат для Mac — DMG."
+          NOTES="Windows EXE, Linux archive и две ad-hoc подписанные версии macOS: Intel и Apple Silicon. Без Apple Developer ID и notarization macOS всё ещё может потребовать ручное разрешение запуска."
 
           FILES=(
             release-assets/DNP_Receipts-windows/DNP_Receipts.exe
