@@ -63,7 +63,7 @@ jobs:
           architecture: x64
           cache: pip
 
-      - name: Show architecture
+      - name: Verify Intel architecture
         run: |
           uname -m
           python -c "import platform; print(platform.machine())"
@@ -91,7 +91,7 @@ jobs:
           mkdir -p dmg-root
           cp -R dist/DNP_Receipts.app dmg-root/
           ln -s /Applications dmg-root/Applications
-          hdiutil create -volname "DNP Receipts" -srcfolder dmg-root -ov -format UDZO dist/DNP_Receipts-macos-intel.dmg
+          hdiutil create -volname "DNP Receipts Intel" -srcfolder dmg-root -ov -format UDZO dist/DNP_Receipts-macos-intel.dmg
 
       - name: Upload macOS Intel ZIP artifact
         uses: actions/upload-artifact@v4
@@ -105,6 +105,65 @@ jobs:
         with:
           name: DNP_Receipts-macos-intel-dmg
           path: dist/DNP_Receipts-macos-intel.dmg
+          if-no-files-found: error
+
+  build-macos-arm:
+    name: Build macOS Apple Silicon ZIP and DMG
+    runs-on: macos-14-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: arm64
+          cache: pip
+
+      - name: Verify Apple Silicon architecture
+        run: |
+          uname -m
+          python -c "import platform; print(platform.machine())"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt
+          fi
+          python -m pip install pyinstaller
+
+      - name: Build macOS Apple Silicon APP
+        run: |
+          pyinstaller --windowed --name DNP_Receipts receipt_generator.py --noconfirm --clean --target-arch arm64
+          file dist/DNP_Receipts.app/Contents/MacOS/DNP_Receipts
+
+      - name: Pack macOS Apple Silicon ZIP
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent DNP_Receipts.app DNP_Receipts-macos-apple-silicon.zip
+
+      - name: Pack macOS Apple Silicon DMG
+        run: |
+          mkdir -p dmg-root
+          cp -R dist/DNP_Receipts.app dmg-root/
+          ln -s /Applications dmg-root/Applications
+          hdiutil create -volname "DNP Receipts Apple Silicon" -srcfolder dmg-root -ov -format UDZO dist/DNP_Receipts-macos-apple-silicon.dmg
+
+      - name: Upload macOS Apple Silicon ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DNP_Receipts-macos-apple-silicon-zip
+          path: dist/DNP_Receipts-macos-apple-silicon.zip
+          if-no-files-found: error
+
+      - name: Upload macOS Apple Silicon DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DNP_Receipts-macos-apple-silicon-dmg
+          path: dist/DNP_Receipts-macos-apple-silicon.dmg
           if-no-files-found: error
 
   build-linux:
@@ -156,6 +215,7 @@ jobs:
     needs:
       - build-windows
       - build-macos-intel
+      - build-macos-arm
       - build-linux
     if: github.event_name != 'pull_request'
 
@@ -176,22 +236,21 @@ jobs:
         run: |
           TAG="build-${{ github.run_number }}"
           TITLE="DNP Receipts build ${{ github.run_number }}"
-          NOTES="Windows EXE, macOS Intel ZIP/DMG, Linux archive. Для MacBook Air 2019 скачивайте DNP_Receipts-macos-intel.dmg."
+          NOTES="Windows EXE, Linux archive и две версии macOS: Intel для Mac до перехода на M1, Apple Silicon для M1/M2/M3/M4. Рекомендуемый формат для Mac — DMG."
+
+          FILES=(
+            release-assets/DNP_Receipts-windows/DNP_Receipts.exe
+            release-assets/DNP_Receipts-macos-intel-zip/DNP_Receipts-macos-intel.zip
+            release-assets/DNP_Receipts-macos-intel-dmg/DNP_Receipts-macos-intel.dmg
+            release-assets/DNP_Receipts-macos-apple-silicon-zip/DNP_Receipts-macos-apple-silicon.zip
+            release-assets/DNP_Receipts-macos-apple-silicon-dmg/DNP_Receipts-macos-apple-silicon.dmg
+            release-assets/DNP_Receipts-linux/DNP_Receipts-linux.tar.gz
+          )
 
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" \
-              release-assets/DNP_Receipts-windows/DNP_Receipts.exe \
-              release-assets/DNP_Receipts-macos-intel-zip/DNP_Receipts-macos-intel.zip \
-              release-assets/DNP_Receipts-macos-intel-dmg/DNP_Receipts-macos-intel.dmg \
-              release-assets/DNP_Receipts-linux/DNP_Receipts-linux.tar.gz \
-              --repo "$REPO" \
-              --clobber
+            gh release upload "$TAG" "${FILES[@]}" --repo "$REPO" --clobber
           else
-            gh release create "$TAG" \
-              release-assets/DNP_Receipts-windows/DNP_Receipts.exe \
-              release-assets/DNP_Receipts-macos-intel-zip/DNP_Receipts-macos-intel.zip \
-              release-assets/DNP_Receipts-macos-intel-dmg/DNP_Receipts-macos-intel.dmg \
-              release-assets/DNP_Receipts-linux/DNP_Receipts-linux.tar.gz \
+            gh release create "$TAG" "${FILES[@]}" \
               --repo "$REPO" \
               --title "$TITLE" \
               --notes "$NOTES"
