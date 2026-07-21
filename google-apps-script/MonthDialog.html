@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 22px; color: #202124; }
+    h2 { font-size: 18px; margin: 0 0 18px; }
+    .row { display: grid; grid-template-columns: 100px 1fr; gap: 10px; align-items: center; margin-bottom: 12px; }
+    label { font-weight: 600; }
+    input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #dadce0; border-radius: 4px; font-size: 14px; }
+    input:focus { outline: 2px solid #1a73e8; border-color: transparent; }
+    .buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    button { padding: 8px 16px; border-radius: 4px; border: 1px solid #dadce0; background: white; cursor: pointer; }
+    button.primary { background: #1a73e8; color: white; border-color: #1a73e8; }
+    button:disabled { opacity: .55; cursor: default; }
+    #status { margin-top: 14px; min-height: 20px; font-size: 13px; color: #5f6368; }
+    #error { color: #b3261e; }
+  </style>
+</head>
+<body>
+  <h2><?= title ?></h2>
+
+  <div class="row">
+    <label for="month">Месяц</label>
+    <input id="month" type="number" min="1" max="12" inputmode="numeric" placeholder="1–12">
+  </div>
+
+  <div class="row">
+    <label for="year">Год</label>
+    <input id="year" type="number" min="2000" max="2100" inputmode="numeric" value="<?= new Date().getFullYear() ?>">
+  </div>
+
+  <div class="buttons">
+    <button type="button" onclick="google.script.host.close()">Отмена</button>
+    <button id="submitBtn" class="primary" type="button" onclick="submitForm()">Продолжить</button>
+  </div>
+
+  <div id="status"></div>
+  <div id="error"></div>
+
+  <script>
+    const action = '<?= action ?>';
+    const monthInput = document.getElementById('month');
+    const yearInput = document.getElementById('year');
+    const submitBtn = document.getElementById('submitBtn');
+    const statusEl = document.getElementById('status');
+    const errorEl = document.getElementById('error');
+
+    document.addEventListener('DOMContentLoaded', () => monthInput.focus());
+
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        submitForm();
+      }
+      if (event.key === 'Escape') {
+        google.script.host.close();
+      }
+    });
+
+    function submitForm() {
+      if (submitBtn.disabled) return;
+
+      const month = Number(monthInput.value);
+      const year = Number(yearInput.value);
+      errorEl.textContent = '';
+
+      if (!Number.isInteger(month) || month < 1 || month > 12) {
+        errorEl.textContent = 'Введите месяц от 1 до 12.';
+        monthInput.focus();
+        return;
+      }
+      if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+        errorEl.textContent = 'Введите корректный год.';
+        yearInput.focus();
+        return;
+      }
+
+      submitBtn.disabled = true;
+      monthInput.disabled = true;
+      yearInput.disabled = true;
+      statusEl.textContent = action === 'EMAIL'
+        ? 'Запущена отправка. Прогресс показывается внизу таблицы…'
+        : 'Запущено формирование. Прогресс показывается внизу таблицы…';
+
+      google.script.run
+        .withSuccessHandler(result => {
+          statusEl.textContent = result && result.message ? result.message : 'Готово.';
+          setTimeout(() => google.script.host.close(), 1200);
+        })
+        .withFailureHandler(error => {
+          errorEl.textContent = error && error.message ? error.message : String(error);
+          statusEl.textContent = '';
+          submitBtn.disabled = false;
+          monthInput.disabled = false;
+          yearInput.disabled = false;
+        })
+        .dnpRunMonthAction(action, month, year);
+    }
+  </script>
+</body>
+</html>
