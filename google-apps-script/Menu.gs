@@ -3,6 +3,7 @@
 function onOpen() {
   removeLastPdfSetting_();
   const ui = SpreadsheetApp.getUi();
+
   ui.createMenu('ДНП')
     .addSubMenu(ui.createMenu('Квитанции')
       .addItem('Сформировать PDF', 'showPdfDialog')
@@ -12,6 +13,9 @@ function onOpen() {
       .addItem('Отправить квитанции', 'sendReceipts'))
     .addSubMenu(ui.createMenu('Настройка')
       .addItem('Первичная настройка', 'showInitialSetupDialog')
+      .addSeparator()
+      .addItem('Создать шаблон квитанции', 'createReceiptTemplate')
+      .addItem('Открыть шаблон квитанции', 'openReceiptTemplate')
       .addItem('Создать новый лист-год', 'showCreateYearDialog')
       .addSeparator()
       .addItem('Открыть настройки', 'openSettingsSheet')
@@ -74,8 +78,7 @@ function openCurrentMonthFolder() {
   const monthName = String(month).padStart(2, '0') + ' ' + getRussianMonthName_(month);
   const monthFolder = findChildFolderByNames_(yearFolder, [monthName]);
   if (!monthFolder) throw new Error('Папка «' + monthName + '» не найдена.');
-  const html = HtmlService.createHtmlOutput('<div style="font:14px Arial;padding:18px"><p><a href="' + monthFolder.getUrl() + '" target="_blank">Открыть папку в Google Drive</a></p></div>').setWidth(380).setHeight(150);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Папка месяца');
+  showDriveLinkDialog_('Папка месяца', monthFolder.getName(), monthFolder.getUrl());
 }
 
 function findChildFolderByNames_(parent, names) {
