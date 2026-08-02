@@ -115,17 +115,13 @@ function buildReceiptData_(sheet, block, year, month, rates) {
     paymentRows.push(['Водоотведение', formatReceiptValue_(current), formatReceiptValue_(previous), formatReceiptValue_(usage), formatReceiptMoney_(rates.WATER), formatReceiptMoney_(amount)]);
   }
 
-  // Все прочие строки между «Тариф» и «Сумма» считаем отдельными услугами.
-  // В ячейке выбранного месяца хранится готовая сумма начисления.
   const ignoredLabels = /^(тариф(?:ы)?|т1|т2|т3|квтч|квт·ч|квт\/ч|водоотвед.*|вода|сумма.*|итого.*)$/;
   values.forEach(row => {
     const rawLabel = String(row[1] == null ? '' : row[1]).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
     const label = normalizeReceiptLabel_(rawLabel);
     if (!label || ignoredLabels.test(label)) return;
-
     const amount = parseReceiptNumber_(row[monthColumn - 1]);
     if (amount === null) return;
-
     calculatedTotal += amount;
     paymentRows.push([rawLabel, '—', '—', '—', '—', formatReceiptMoney_(amount)]);
   });
@@ -153,7 +149,6 @@ function insertPaymentTable_(body, paymentRows, total) {
   const index = body.getChildIndex(paragraph);
   const rows = [['Наименование платежа', 'Текущее', 'Предыдущее', 'Объём', 'Тариф', 'Сумма к оплате']].concat(paymentRows);
   rows.push(['ИТОГО К ОПЛАТЕ', '', '', '', '', formatReceiptMoney_(total) + ' руб.']);
-
   const table = body.insertTable(index, rows);
   body.removeChild(paragraph);
   table.getRow(0).editAsText().setBold(true);
@@ -166,35 +161,85 @@ function getReceiptTemplateFile_() {
   if (templateId) {
     try {
       const file = DriveApp.getFileById(templateId);
-      file.getName();
+      if (file.getMimeType() !== MimeType.GOOGLE_DOCS) {
+        throw new Error('Файл templateDocId не является Google Docs.');
+      }
       return file;
-    } catch (error) {}
-  }
-  const parent = getSpreadsheetParentFolder_();
-  const files = parent.getFiles();
-  while (files.hasNext()) {
-    const file = files.next();
-    if (/^Шаблон квитанции ДНП Комфорт/.test(file.getName())) {
-      saveTemplateId_(file.getId());
-      return file;
+    } catch (error) {
+      throw new Error(
+        'Не удалось открыть шаблон из строки templateDocId на листе «Настройки». ' +
+        'Проверьте ID и доступ к документу.\n\n' + (error.message || error)
+      );
     }
   }
-  throw new Error('Шаблон квитанции не найден. Выполните «ДНП → Настройка → Создать шаблон под текущий формат».');
+  throw new Error(
+    'На листе «Настройки» не заполнен параметр templateDocId. ' +
+    'Вставьте в столбец B ID старого Google Docs-шаблона.'
+  );
 }
 
 function getStoredTemplateId_() {
+  const settingsValue = getTemplateIdFromSettings_();
+  if (settingsValue) return settingsValue;
+
   const stores = getAvailablePropertyStores_();
   for (let i = 0; i < stores.length; i++) {
-    try { const value = stores[i].getProperty('TEMPLATE_DOC_ID'); if (value) return value; } catch (error) {}
+    try {
+      const value = stores[i].getProperty('TEMPLATE_DOC_ID');
+      if (value) return extractGoogleFileId_(value);
+    } catch (error) {}
+  }
+  return '';
+}
+
+function getTemplateIdFromSettings_() {
+  const settings = SpreadsheetApp.getActive().getSheetByName('Настройки');
+  if (!settings || settings.getLastRow() < 1) return '';
+  const values = settings.getRange(1, 1, settings.getLastRow(), Math.max(2, Math.min(settings.getLastColumn(), 3))).getDisplayValues();
+  for (let row = 0; row < values.length; row++) {
+    const key = String(values[row][0] || '').trim().toLowerCase();
+    if (key === 'templatedocid' || key === 'template_doc_id' || key === 'id шаблона') {
+      return extractGoogleFileId_(values[row][1]);
+    }
   }
   return '';
 }
 
 function saveTemplateId_(templateId) {
+  const cleanId = extractGoogleFileId_(templateId);
+  const settings = SpreadsheetApp.getActive().getSheetByName('Настройки');
+  if (settings) {
+    const lastRow = Math.max(settings.getLastRow(), 1);
+    const values = settings.getRange(1, 1, lastRow, Math.max(2, Math.min(settings.getLastColumn(), 3))).getDisplayValues();
+    let targetRow = 0;
+    for (let row = 0; row < values.length; row++) {
+      const key = String(values[row][0] || '').trim().toLowerCase();
+      if (key === 'templatedocid' || key === 'template_doc_id' || key === 'id шаблона') {
+        targetRow = row + 1;
+        break;
+      }
+    }
+    if (!targetRow) {
+      targetRow = settings.getLastRow() + 1;
+      settings.getRange(targetRow, 1).setValue('templateDocId');
+      if (settings.getMaxColumns() >= 3) {
+        settings.getRange(targetRow, 3).setValue('ID Google Docs шаблона квитанции');
+      }
+    }
+    settings.getRange(targetRow, 2).setValue(cleanId);
+  }
+
   const stores = getAvailablePropertyStores_();
   for (let i = 0; i < stores.length; i++) {
-    try { stores[i].setProperty('TEMPLATE_DOC_ID', templateId); return; } catch (error) {}
+    try { stores[i].setProperty('TEMPLATE_DOC_ID', cleanId); } catch (error) {}
   }
+}
+
+function extractGoogleFileId_(value) {
+  const text = String(value == null ? '' : value).trim();
+  if (!text) return '';
+  const match = text.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : text;
 }
 
 function getReceiptRates_() {
