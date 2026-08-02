@@ -48,16 +48,30 @@ function clearCopiedYearValues_(sheet) {
   if (lastRow < 2 || lastColumn < 3) return;
 
   const labels = sheet.getRange(1, 2, lastRow, 1).getDisplayValues().flat().map(normalizeDnpRowLabel_);
-  const dataRowPattern = /^(т1|т2|т3|квтч|квт·ч|квт\/ч|водоотведение|целевые взносы|сумма|сумма,?\s*₽|сумма,?\s*р)$/i;
+  let insideBlock = false;
 
   for (let row = 2; row <= lastRow; row++) {
-    if (!dataRowPattern.test(labels[row - 1])) continue;
+    const label = labels[row - 1];
+
+    if (/^тариф(?:ы)?$/.test(label)) {
+      insideBlock = true;
+      continue; // Номера месяцев в строке «Тариф» сохраняем.
+    }
+    if (!insideBlock || !label) continue;
+
+    // В каждом блоке очищаем все введённые значения услуг и итогов.
+    // Это автоматически поддерживает новые строки: целевые взносы,
+    // водоотведение и любые будущие услуги.
     const range = sheet.getRange(row, 3, 1, lastColumn - 2);
     const values = range.getValues()[0];
     const formulas = range.getFormulas()[0];
     let changed = false;
+
     for (let column = 0; column < values.length; column++) {
-      if (!formulas[column] && values[column] !== '') { values[column] = ''; changed = true; }
+      if (!formulas[column] && values[column] !== '') {
+        values[column] = '';
+        changed = true;
+      }
     }
     if (changed) range.setValues([values]);
   }
