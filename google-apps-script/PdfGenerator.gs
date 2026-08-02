@@ -88,6 +88,7 @@ function buildReceiptData_(sheet, block, year, month, rates) {
 
   const paymentRows = [];
   let calculatedTotal = 0;
+
   ['т1', 'т2', 'т3'].forEach((label, index) => {
     const row = byLabel[label];
     if (!row) return;
@@ -114,12 +115,20 @@ function buildReceiptData_(sheet, block, year, month, rates) {
     paymentRows.push(['Водоотведение', formatReceiptValue_(current), formatReceiptValue_(previous), formatReceiptValue_(usage), formatReceiptMoney_(rates.WATER), formatReceiptMoney_(amount)]);
   }
 
-  const targetRow = findReceiptRow_(byLabel, [/^целев/]);
-  if (targetRow) {
-    const amount = parseReceiptNumber_(targetRow[monthColumn - 1]);
-    if (amount !== null) calculatedTotal += amount;
-    paymentRows.push(['Целевые взносы', '—', '—', '—', '—', formatReceiptMoney_(amount)]);
-  }
+  // Все прочие строки между «Тариф» и «Сумма» считаем отдельными услугами.
+  // В ячейке выбранного месяца хранится готовая сумма начисления.
+  const ignoredLabels = /^(тариф(?:ы)?|т1|т2|т3|квтч|квт·ч|квт\/ч|водоотвед.*|вода|сумма.*|итого.*)$/;
+  values.forEach(row => {
+    const rawLabel = String(row[1] == null ? '' : row[1]).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+    const label = normalizeReceiptLabel_(rawLabel);
+    if (!label || ignoredLabels.test(label)) return;
+
+    const amount = parseReceiptNumber_(row[monthColumn - 1]);
+    if (amount === null) return;
+
+    calculatedTotal += amount;
+    paymentRows.push([rawLabel, '—', '—', '—', '—', formatReceiptMoney_(amount)]);
+  });
 
   const totalRow = findReceiptRow_(byLabel, [/^сумма/, /^итого/]);
   const storedTotal = totalRow ? parseReceiptNumber_(totalRow[monthColumn - 1]) : null;
@@ -170,7 +179,7 @@ function getReceiptTemplateFile_() {
       return file;
     }
   }
-  throw new Error('Шаблон квитанции не найден. Выполните «ДНП → Настройка → Создать шаблон квитанции».');
+  throw new Error('Шаблон квитанции не найден. Выполните «ДНП → Настройка → Создать шаблон под текущий формат».');
 }
 
 function getStoredTemplateId_() {
