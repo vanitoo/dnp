@@ -11,7 +11,7 @@
 
 /** Ядро приложения DNP Receipts. */
 
-const DNP_VERSION = '3.7.0';
+const DNP_VERSION = '3.7.1';
 const DNP_ADMIN_PASSWORD = '123456';
 const DNP_SERVICE_SHEETS = {
   settings: 'Настройки',
@@ -45,7 +45,7 @@ function countPlotsForYear(year) {
 }
 
 function startPdfGenerationFromDialog(year, month) {
-  const result = generatePdfsForMonth(Number(year), Number(month));
+  const result = generatePdfsForMonthWithLog(Number(year), Number(month));
   return {
     ok: result && result.ok !== false,
     message: result && result.message ? result.message : 'Формирование завершено.',
