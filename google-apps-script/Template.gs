@@ -2,8 +2,6 @@
  * Создание и открытие Google Docs-шаблона квитанции.
  *
  * Ширины колонок динамической таблицы задаются в пунктах (pt).
- * Их можно менять под свой макет: сумма должна примерно помещаться
- * в рабочую ширину страницы Google Docs.
  */
 
 const DNP_PAYMENT_TABLE_WIDTHS = {
@@ -16,10 +14,31 @@ const DNP_PAYMENT_TABLE_WIDTHS = {
 };
 
 function createReceiptTemplate() {
+  return createReceiptTemplateForCurrentFormat();
+}
+
+function createReceiptTemplateForCurrentFormat() {
   const ui = SpreadsheetApp.getUi();
+  const sheet = SpreadsheetApp.getActiveSheet();
+
+  if (!/^\d{4}$/.test(sheet.getName())) {
+    ui.alert(
+      'Сначала откройте лист нужного года, например 2026.\n\n' +
+      'Список услуг для шаблона будет считан из текущего листа.'
+    );
+    return;
+  }
+
+  const services = getCurrentFormatServiceLabels_(sheet);
+  if (!services.length) {
+    ui.alert('В текущем листе не удалось определить строки услуг между «Тариф» и «Сумма».');
+    return;
+  }
+
   const answer = ui.alert(
-    'Создать шаблон квитанции?',
-    'Будет создан новый Google Документ. Он станет активным шаблоном для последующего формирования PDF.',
+    'Создать шаблон под текущий формат?',
+    'Найдены строки:\n\n• ' + services.join('\n• ') +
+      '\n\nБудет создан новый Google Документ и назначен активным шаблоном.',
     ui.ButtonSet.YES_NO
   );
   if (answer !== ui.Button.YES) return;
@@ -41,7 +60,7 @@ function createReceiptTemplate() {
   body.appendParagraph('Р/с {{RS}} в {{BANK}}');
   body.appendParagraph('БИК {{BIK}}  Кор/с {{KS}}');
   body.appendParagraph('');
-  body.appendParagraph('Наименование платежа: Ежемесячный взнос на содержание ДНП «Дачный поселок «Комфорт»')
+  body.appendParagraph('Наименование платежа: Ежемесячные начисления ДНП «Дачный поселок «Комфорт»')
     .setAlignment(DocumentApp.HorizontalAlignment.CENTER);
   body.appendParagraph('');
   body.appendParagraph('Участок № {{PLOT}}    {{MONTH_NAME}} {{YEAR}} года')
@@ -51,7 +70,8 @@ function createReceiptTemplate() {
     .editAsText().setBold(true);
   body.appendParagraph('');
 
-  // Маркер должен оставаться отдельным абзацем.
+  // Генератор сам вставит сюда строки Т1/Т2/Т3, водоотведения,
+  // целевых взносов и других поддерживаемых услуг.
   body.appendParagraph('{{PAYMENT_TABLE}}');
 
   body.appendParagraph('');
@@ -62,7 +82,42 @@ function createReceiptTemplate() {
   file.moveTo(parent);
   saveTemplateId_(file.getId());
 
-  showDriveLinkDialog_('Шаблон создан', file.getName(), file.getUrl());
+  showDriveLinkDialog_(
+    'Шаблон создан',
+    file.getName() + '\nСтроки текущего формата: ' + services.join(', '),
+    file.getUrl()
+  );
+}
+
+function getCurrentFormatServiceLabels_(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+
+  const labels = sheet.getRange(1, 2, lastRow, 1)
+    .getDisplayValues()
+    .flat()
+    .map(value => String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim());
+
+  let tariffRow = -1;
+  let endRow = labels.length;
+
+  for (let index = 1; index < labels.length; index++) {
+    if (/^тариф(?:ы)?$/i.test(labels[index])) {
+      if (tariffRow === -1) tariffRow = index;
+      else { endRow = index; break; }
+    }
+  }
+
+  if (tariffRow === -1) return [];
+
+  const result = [];
+  for (let index = tariffRow + 1; index < endRow; index++) {
+    const label = labels[index];
+    if (!label) continue;
+    if (/^(сумма|итого)/i.test(label)) break;
+    if (!result.some(item => item.toLowerCase() === label.toLowerCase())) result.push(label);
+  }
+  return result;
 }
 
 function openReceiptTemplate() {
