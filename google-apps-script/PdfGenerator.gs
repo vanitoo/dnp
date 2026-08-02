@@ -145,12 +145,17 @@ function fillReceiptTemplate_(doc, receipt) {
 function insertPaymentTable_(body, paymentRows, total) {
   const found = body.findText('\\{\\{PAYMENT_TABLE\\}\\}');
   if (!found) throw new Error('В Google Docs-шаблоне не найден маркер {{PAYMENT_TABLE}}.');
+
   const paragraph = found.getElement().asText().getParent().asParagraph();
   const index = body.getChildIndex(paragraph);
   const rows = [['Наименование платежа', 'Текущее', 'Предыдущее', 'Объём', 'Тариф', 'Сумма к оплате']].concat(paymentRows);
   rows.push(['ИТОГО К ОПЛАТЕ', '', '', '', '', formatReceiptMoney_(total) + ' руб.']);
+
+  // В Google Docs нельзя удалить последний абзац раздела. Поэтому таблица
+  // вставляется перед абзацем с маркером, а сам абзац остаётся пустым.
   const table = body.insertTable(index, rows);
-  body.removeChild(paragraph);
+  paragraph.editAsText().setText('');
+
   table.getRow(0).editAsText().setBold(true);
   table.getRow(table.getNumRows() - 1).editAsText().setBold(true);
   applyPaymentTableColumnWidths_(table);
@@ -246,15 +251,26 @@ function getReceiptRates_() {
   const result = { T1: null, T2: null, T3: null, WATER: null };
   const settings = SpreadsheetApp.getActive().getSheetByName('Настройки');
   if (!settings || settings.getLastRow() < 2) return result;
+
   settings.getRange(2, 1, settings.getLastRow() - 1, 2).getDisplayValues().forEach(row => {
-    const key = normalizeReceiptLabel_(row[0]);
+    const key = normalizeSettingKey_(row[0]);
     const value = parseReceiptNumber_(row[1]);
-    if (/тариф\s*т1/.test(key)) result.T1 = value;
-    if (/тариф\s*т2/.test(key)) result.T2 = value;
-    if (/тариф\s*т3/.test(key)) result.T3 = value;
-    if (/водоотвед/.test(key)) result.WATER = value;
+
+    if (/^(tariff|тариф)t?1$/.test(key) || key === 'тариф1') result.T1 = value;
+    if (/^(tariff|тариф)t?2$/.test(key) || key === 'тариф2') result.T2 = value;
+    if (/^(tariff|тариф)t?3$/.test(key) || key === 'тариф3') result.T3 = value;
+    if (/водоотвед|sewage|wastewater|watertariff|tariffwater/.test(key)) result.WATER = value;
   });
+
   return result;
+}
+
+function normalizeSettingKey_(value) {
+  return String(value == null ? '' : value)
+    .replace(/\u00a0/g, ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_\-.,:;()]+/g, '');
 }
 
 function findReceiptRow_(byLabel, patterns) {
