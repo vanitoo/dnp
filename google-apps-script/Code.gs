@@ -1,6 +1,6 @@
 /** Ядро приложения DNP Receipts. */
 
-const DNP_VERSION = '3.7.1';
+const DNP_VERSION = '3.7.2';
 const DNP_ADMIN_PASSWORD = '123456';
 const DNP_SERVICE_SHEETS = {
   settings: 'Настройки',
