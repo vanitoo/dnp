@@ -157,8 +157,20 @@ function insertPaymentTable_(body, paymentRows, total) {
   paragraph.editAsText().setText('');
 
   table.getRow(0).editAsText().setBold(true);
-  table.getRow(table.getNumRows() - 1).editAsText().setBold(true);
   applyPaymentTableColumnWidths_(table);
+
+  // Последняя строка: первые пять колонок объединяются под надпись
+  // «ИТОГО К ОПЛАТЕ», сумма остаётся в отдельной последней колонке.
+  const totalRow = table.getRow(table.getNumRows() - 1);
+  for (let mergeIndex = 0; mergeIndex < 4; mergeIndex++) {
+    totalRow.getCell(1).merge();
+  }
+  totalRow.getCell(0).setText('ИТОГО К ОПЛАТЕ');
+  totalRow.getCell(1).setText(formatReceiptMoney_(total) + ' руб.');
+  totalRow.getCell(0).editAsText().setBold(true);
+  totalRow.getCell(1).editAsText().setBold(true);
+  totalRow.getCell(0).getChild(0).asParagraph()
+    .setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
 }
 
 function getReceiptTemplateFile_() {
