@@ -104,13 +104,28 @@ function applySevenRowBanding_(sheet) {
     tariffRows.forEach((startRow, blockIndex) => {
       const endRow = blockIndex + 1 < tariffRows.length ? tariffRows[blockIndex + 1] - 1 : lastRow;
       const rowCount = endRow - startRow + 1;
-      if (rowCount > 0) sheet.getRange(startRow, 1, rowCount, lastColumn).setBackground(colors[blockIndex % colors.length]);
+      if (rowCount <= 0) return;
+
+      sheet.getRange(startRow, 1, rowCount, lastColumn)
+        .setBackground(colors[blockIndex % colors.length]);
+
+      // Строка «Тариф» открывает новый участок: проводим сверху
+      // толстую чёрную границу по всей ширине заполненной таблицы.
+      sheet.getRange(startRow, 1, 1, lastColumn).setBorder(
+        true, null, null, null, null, null,
+        '#000000', SpreadsheetApp.BorderStyle.SOLID_THICK
+      );
     });
     return;
   }
 
   for (let row = 2, blockIndex = 0; row <= lastRow; row += 7, blockIndex++) {
     const rowCount = Math.min(7, lastRow - row + 1);
-    sheet.getRange(row, 1, rowCount, lastColumn).setBackground(colors[blockIndex % colors.length]);
+    sheet.getRange(row, 1, rowCount, lastColumn)
+      .setBackground(colors[blockIndex % colors.length]);
+    sheet.getRange(row, 1, 1, lastColumn).setBorder(
+      true, null, null, null, null, null,
+      '#000000', SpreadsheetApp.BorderStyle.SOLID_THICK
+    );
   }
 }
