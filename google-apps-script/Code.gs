@@ -1,6 +1,6 @@
 /** Ядро приложения DNP Receipts. */
 
-const DNP_VERSION = '3.7.5';
+const DNP_VERSION = '3.7.6';
 const DNP_ADMIN_PASSWORD = '123456';
 
 // Настройки формирования PDF.
