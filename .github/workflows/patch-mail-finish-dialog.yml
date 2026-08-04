@@ -1,0 +1,44 @@
+name: Patch mail finish dialog
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/patch-mail-finish-dialog.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch single Apps Script
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("google-apps-script-single/Code.gs")
+          text = path.read_text(encoding="utf-8")
+
+          text = text.replace("const DNP_VERSION = '3.7.7';", "const DNP_VERSION = '3.7.8';", 1)
+
+          old = "withSuccessHandler(r=>{s.textContent=r.message;b.disabled=false}).withFailureHandler"
+          new = "withSuccessHandler(r=>{document.body.innerHTML='<h2>Отправка завершена</h2><div class=\"note\">Отправлено писем: <b>'+Number(r.sent||0)+'</b><br>Ошибок: <b>'+Number(r.failed||0)+'</b><br>Пропущено: <b>'+Number(r.skipped||0)+'</b></div><div class=\"buttons\"><button class=\"primary\" onclick=\"google.script.host.close()\">Закрыть</button></div>'}).withFailureHandler"
+
+          if old not in text:
+              raise SystemExit("Mail success handler pattern not found")
+          text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding="utf-8")
+
+      - name: Commit patch and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/patch-mail-finish-dialog.yml
+          git add google-apps-script-single/Code.gs
+          git commit -m "Show mail sending completion screen [skip ci]"
+          git push
