@@ -1,7 +1,14 @@
 /** Ядро приложения DNP Receipts. */
 
-const DNP_VERSION = '3.7.4';
+const DNP_VERSION = '3.7.5';
 const DNP_ADMIN_PASSWORD = '123456';
+
+// Настройки формирования PDF.
+// false — журнал PDF не записывается; true — одна итоговая строка за запуск.
+const DNP_PDF_LOG_ENABLED = false;
+// Небольшая пауза между файлами, чтобы не перегружать Google Drive.
+const DNP_PDF_SLEEP_MS = 20;
+
 const DNP_SERVICE_SHEETS = {
   settings: 'Настройки',
   emails: 'Почты',
