@@ -12,7 +12,7 @@
 
 /** Ядро приложения DNP Receipts. */
 
-const DNP_VERSION = '3.7.7';
+const DNP_VERSION = '3.7.8';
 const DNP_ADMIN_PASSWORD = '123456';
 
 // Настройки формирования PDF.
@@ -1412,7 +1412,7 @@ button{padding:9px 14px;border:0;border-radius:6px;cursor:pointer}.primary{backg
 <div id="status"></div><div class="buttons"><button class="secondary" onclick="google.script.host.close()">Отмена</button><button class="primary" id="send" onclick="run()">Отправить</button></div>
 <script>
 document.getElementById('month').value='${currentMonth}';
-function run(){const b=document.getElementById('send'),s=document.getElementById('status');b.disabled=true;s.textContent='Идёт последовательная отправка…';google.script.run.withSuccessHandler(r=>{s.textContent=r.message;b.disabled=false}).withFailureHandler(e=>{s.textContent='Ошибка: '+e.message;b.disabled=false}).sendReceiptsForMonth(Number(document.getElementById('year').value),Number(document.getElementById('month').value))}
+function run(){const b=document.getElementById('send'),s=document.getElementById('status');b.disabled=true;s.textContent='Идёт последовательная отправка…';google.script.run.withSuccessHandler(r=>{document.body.innerHTML='<h2>Отправка завершена</h2><div class="note">Отправлено писем: <b>'+Number(r.sent||0)+'</b><br>Ошибок: <b>'+Number(r.failed||0)+'</b><br>Пропущено: <b>'+Number(r.skipped||0)+'</b></div><div class="buttons"><button class="primary" onclick="google.script.host.close()">Закрыть</button></div>'}).withFailureHandler(e=>{s.textContent='Ошибка: '+e.message;b.disabled=false}).sendReceiptsForMonth(Number(document.getElementById('year').value),Number(document.getElementById('month').value))}
 </script></body></html>`).setWidth(460).setHeight(420);
   SpreadsheetApp.getUi().showModalDialog(html, 'ДНП');
 }
