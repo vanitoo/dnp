@@ -3,7 +3,7 @@
  * Для работы достаточно вставить только этот Code.gs.
  */
 
-const DNP_VERSION = '3.8.0';
+const DNP_VERSION = '3.8.1';
 const DNP_ADMIN_PASSWORD = '123456';
 const DNP_PDF_LOG_ENABLED = false;
 const DNP_PDF_SLEEP_MS = 20;
@@ -715,38 +715,53 @@ function fillReceiptTemplate_(doc, receipt) {
 
 function insertPaymentTable_(body, paymentRows, total) {
   const found = body.findText('\\{\\{PAYMENT_TABLE\\}\\}');
-  if (!found) throw new Error('В Google Docs-шаблоне не найден маркер {{PAYMENT_TABLE}}.');
+  if (!found) {
+    throw new Error('В Google Docs-шаблоне не найден маркер {{PAYMENT_TABLE}}.');
+  }
 
   const paragraph = found.getElement().asText().getParent().asParagraph();
   const index = body.getChildIndex(paragraph);
   const rows = [[
-    'Наименование платежа', 'Текущее', 'Предыдущее', 'Объём', 'Тариф', 'Сумма к оплате',
+    'Наименование платежа',
+    'Текущее',
+    'Предыдущее',
+    'Объём',
+    'Тариф',
+    'Сумма к оплате',
   ]].concat(paymentRows);
-  rows.push(['', '', '', '', 'ИТОГО К ОПЛАТЕ', formatReceiptMoney_(total) + ' руб.']);
+
+  rows.push([
+    'ИТОГО К ОПЛАТЕ',
+    '',
+    '',
+    '',
+    '',
+    formatReceiptMoney_(total) + ' руб.',
+  ]);
 
   const table = body.insertTable(index, rows);
   paragraph.editAsText().setText('');
+
   table.getRow(0).editAsText().setBold(true);
   applyPaymentTableColumnWidths_(table);
 
   const totalRow = table.getRow(table.getNumRows() - 1);
-  for (let mergeIndex = 0; mergeIndex < 4; mergeIndex++) totalRow.getCell(1).merge();
+
+  // Объединяем первые пять ячеек справа налево.
+  // Шестой столбец с суммой остаётся отдельным.
+  for (let cellIndex = 4; cellIndex >= 1; cellIndex--) {
+    totalRow.getCell(cellIndex).merge();
+  }
 
   const labelCell = totalRow.getCell(0);
   const amountCell = totalRow.getCell(1);
+
   labelCell.setText('ИТОГО К ОПЛАТЕ');
   amountCell.setText(formatReceiptMoney_(total) + ' руб.');
-  labelCell.setWidth(
-    DNP_PAYMENT_TABLE_WIDTHS.name +
-    DNP_PAYMENT_TABLE_WIDTHS.current +
-    DNP_PAYMENT_TABLE_WIDTHS.previous +
-    DNP_PAYMENT_TABLE_WIDTHS.usage +
-    DNP_PAYMENT_TABLE_WIDTHS.rate
-  );
-  amountCell.setWidth(DNP_PAYMENT_TABLE_WIDTHS.amount);
   labelCell.editAsText().setBold(true);
   amountCell.editAsText().setBold(true);
-  labelCell.getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
+  labelCell.getChild(0).asParagraph()
+    .setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
 }
 
 function getReceiptTemplateFile_() {
