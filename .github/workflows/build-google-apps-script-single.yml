@@ -1,22 +1,20 @@
-name: Build Google Apps Script Single File
+name: Finalize Google Apps Script Single File
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
-      - master
     paths:
       - "google-apps-script/**"
       - "tools/build_google_apps_script_single.py"
-      - "tools/update_payment_total_row.py"
       - ".github/workflows/build-google-apps-script-single.yml"
 
 permissions:
   contents: write
 
 jobs:
-  build-single-file:
+  finalize-single-file:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,27 +26,28 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Apply source migrations
-        run: python tools/update_payment_total_row.py
-
-      - name: Build single Code.gs
+      - name: Build current single Code.gs
         run: python tools/build_google_apps_script_single.py
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: DNP-Google-Apps-Script-single
-          path: google-apps-script-single/Code.gs
-          if-no-files-found: error
+      - name: Verify final version and mail sender
+        run: |
+          grep -q "const DNP_VERSION = '3.7.6'" google-apps-script-single/Code.gs
+          grep -q "function sendReceipts" google-apps-script-single/Code.gs
+          if grep -q "Функция отправки квитанций будет подключена" google-apps-script-single/Code.gs; then
+            echo "Old mail stub is still present"
+            exit 1
+          fi
 
-      - name: Commit source and generated file
+      - name: Keep only the single-file Apps Script version
+        run: |
+          rm -rf google-apps-script
+          rm -f tools/build_google_apps_script_single.py
+          rm -f tools/update_payment_total_row.py
+
+      - name: Commit final single-file version
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add google-apps-script/Code.gs google-apps-script/PdfGenerator.gs google-apps-script-single/Code.gs
-          if git diff --cached --quiet; then
-            echo "Source and generated file are already up to date."
-          else
-            git commit -m "Format PDF total row and rebuild single script [skip ci]"
-            git push
-          fi
+          git add -A google-apps-script google-apps-script-single tools
+          git commit -m "Keep only Google Apps Script single-file version" || exit 0
+          git push
