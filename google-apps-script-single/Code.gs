@@ -1,24 +1,11 @@
 /**
  * DNP Receipts — единый файл Google Apps Script.
- * Файл создан автоматически из модулей каталога google-apps-script.
- * Не редактируйте его вручную: изменения будут перезаписаны сборкой.
- * Для тестирования достаточно вставить только этот Code.gs.
+ * Для работы достаточно вставить только этот Code.gs.
  */
 
-
-// ============================================================
-// MODULE: Code.gs
-// ============================================================
-
-/** Ядро приложения DNP Receipts. */
-
-const DNP_VERSION = '3.7.8';
+const DNP_VERSION = '3.8.0';
 const DNP_ADMIN_PASSWORD = '123456';
-
-// Настройки формирования PDF.
-// false — журнал PDF не записывается; true — одна итоговая строка за запуск.
 const DNP_PDF_LOG_ENABLED = false;
-// Небольшая пауза между файлами, чтобы не перегружать Google Drive.
 const DNP_PDF_SLEEP_MS = 20;
 
 const DNP_SERVICE_SHEETS = {
@@ -56,16 +43,11 @@ function startPdfGenerationFromDialog(year, month) {
   const result = generatePdfsForMonthWithLog(Number(year), Number(month));
   return {
     ok: result && result.ok !== false,
+    created: Number(result && result.created || 0),
+    failed: Number(result && result.failed || 0),
     message: result && result.message ? result.message : 'Формирование завершено.',
   };
 }
-
-
-// ============================================================
-// MODULE: Utils.gs
-// ============================================================
-
-/** Общие вспомогательные функции. */
 
 function getSpreadsheetParentFolder_() {
   const file = DriveApp.getFileById(SpreadsheetApp.getActive().getId());
@@ -109,13 +91,6 @@ function escapeHtml_(value) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
-
-
-// ============================================================
-// MODULE: Menu.gs
-// ============================================================
-
-/** Меню и основные диалоги. */
 
 function onOpen() {
   removeLastPdfSetting_();
@@ -170,7 +145,7 @@ function showPdfDialog() {
 <!doctype html><html><head><base target="_top"><style>
 body{font:14px Arial,sans-serif;padding:18px;color:#202124}h2{margin:0 0 16px;font-size:18px}
 label{display:block;margin:12px 0 6px;font-weight:600}select{width:100%;box-sizing:border-box;padding:9px;border:1px solid #dadce0;border-radius:6px}
-.info{background:#f8f9fa;padding:10px;border-radius:6px;margin-top:14px}.buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.info{background:#f8f9fa;padding:10px;border-radius:6px;margin-top:14px;line-height:1.5}.buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
 button{padding:9px 14px;border:0;border-radius:6px;cursor:pointer}.primary{background:#1a73e8;color:#fff}.secondary{background:#f1f3f4}#status{margin-top:12px;min-height:18px;color:#5f6368}
 </style></head><body><h2>Формирование PDF</h2>
 <label for="year">Год</label><select id="year" onchange="refreshCount()">${options}</select>
@@ -183,7 +158,7 @@ button{padding:9px 14px;border:0;border-radius:6px;cursor:pointer}.primary{backg
 <script>
 document.getElementById('year').value='${defaultYear}';document.getElementById('month').value='${currentMonth}';
 function refreshCount(){const year=document.getElementById('year').value;google.script.run.withSuccessHandler(c=>document.getElementById('count').textContent=c).withFailureHandler(e=>document.getElementById('status').textContent=e.message).countPlotsForYear(year)}
-function submitForm(){const b=document.getElementById('submit'),s=document.getElementById('status');b.disabled=true;s.textContent='Формирование запущено…';google.script.run.withSuccessHandler(r=>{s.textContent=r&&r.message?r.message:'Готово';b.disabled=false}).withFailureHandler(e=>{s.textContent='Ошибка: '+e.message;b.disabled=false}).startPdfGenerationFromDialog(Number(document.getElementById('year').value),Number(document.getElementById('month').value))}
+function submitForm(){const b=document.getElementById('submit'),s=document.getElementById('status');b.disabled=true;s.textContent='Формирование запущено…';google.script.run.withSuccessHandler(r=>{document.body.innerHTML='<h2>Формирование завершено</h2><div class="info">Создано PDF: <b>'+Number(r.created||0)+'</b><br>Ошибок: <b>'+Number(r.failed||0)+'</b></div><div class="buttons"><button class="primary" onclick="google.script.host.close()">Закрыть</button></div>'}).withFailureHandler(e=>{s.textContent='Ошибка: '+e.message;b.disabled=false}).startPdfGenerationFromDialog(Number(document.getElementById('year').value),Number(document.getElementById('month').value))}
 refreshCount();
 </script></body></html>`).setWidth(440).setHeight(410);
   SpreadsheetApp.getUi().showModalDialog(html, 'ДНП');
@@ -224,13 +199,6 @@ function removeLastPdfSetting_() {
   }
 }
 
-
-// ============================================================
-// MODULE: Setup.gs
-// ============================================================
-
-/** Первичная настройка и служебные листы. */
-
 function showInitialSetupDialog() {
   const html = HtmlService.createHtmlOutput(`
 <!doctype html><html><head><base target="_top"><style>
@@ -263,10 +231,7 @@ function runInitialSetup(password, mode) {
   hideServiceSheets();
 
   ss.toast('Первичная настройка завершена', 'ДНП', 7);
-  return {
-    ok: true,
-    message: 'Готово. Папка квитанций: ' + pdfFolder.getName() + '. Шаблон создаётся отдельно через меню «Создать шаблон квитанции».',
-  };
+  return { ok: true, message: 'Готово. Папка квитанций: ' + pdfFolder.getName() + '.' };
 }
 
 function getOrCreateSetupFolder_(parent, name, forceCreate) {
@@ -325,13 +290,6 @@ function hideServiceSheets() {
   ss.toast('Скрыто служебных листов: ' + hidden, 'ДНП', 5);
 }
 
-
-// ============================================================
-// MODULE: YearSheets.gs
-// ============================================================
-
-/** Создание нового года, очистка вводимых значений и окраска блоков. */
-
 function showCreateYearDialog() {
   const years = getYearSheetNames_();
   if (!years.length) {
@@ -384,26 +342,15 @@ function clearCopiedYearValues_(sheet) {
 
   for (let row = 2; row <= lastRow; row++) {
     const label = labels[row - 1];
-
-    if (/^тариф(?:ы)?$/.test(label)) {
-      insideBlock = true;
-      continue; // Номера месяцев в строке «Тариф» сохраняем.
-    }
+    if (/^тариф(?:ы)?$/.test(label)) { insideBlock = true; continue; }
     if (!insideBlock || !label) continue;
 
-    // В каждом блоке очищаем все введённые значения услуг и итогов.
-    // Это автоматически поддерживает новые строки: целевые взносы,
-    // водоотведение и любые будущие услуги.
     const range = sheet.getRange(row, 3, 1, lastColumn - 2);
     const values = range.getValues()[0];
     const formulas = range.getFormulas()[0];
     let changed = false;
-
     for (let column = 0; column < values.length; column++) {
-      if (!formulas[column] && values[column] !== '') {
-        values[column] = '';
-        changed = true;
-      }
+      if (!formulas[column] && values[column] !== '') { values[column] = ''; changed = true; }
     }
     if (changed) range.setValues([values]);
   }
@@ -437,12 +384,7 @@ function applySevenRowBanding_(sheet) {
       const endRow = blockIndex + 1 < tariffRows.length ? tariffRows[blockIndex + 1] - 1 : lastRow;
       const rowCount = endRow - startRow + 1;
       if (rowCount <= 0) return;
-
-      sheet.getRange(startRow, 1, rowCount, lastColumn)
-        .setBackground(colors[blockIndex % colors.length]);
-
-      // Строка «Тариф» открывает новый участок: проводим сверху
-      // толстую чёрную границу по всей ширине заполненной таблицы.
+      sheet.getRange(startRow, 1, rowCount, lastColumn).setBackground(colors[blockIndex % colors.length]);
       sheet.getRange(startRow, 1, 1, lastColumn).setBorder(
         true, null, null, null, null, null,
         '#000000', SpreadsheetApp.BorderStyle.SOLID_THICK
@@ -453,8 +395,7 @@ function applySevenRowBanding_(sheet) {
 
   for (let row = 2, blockIndex = 0; row <= lastRow; row += 7, blockIndex++) {
     const rowCount = Math.min(7, lastRow - row + 1);
-    sheet.getRange(row, 1, rowCount, lastColumn)
-      .setBackground(colors[blockIndex % colors.length]);
+    sheet.getRange(row, 1, rowCount, lastColumn).setBackground(colors[blockIndex % colors.length]);
     sheet.getRange(row, 1, 1, lastColumn).setBorder(
       true, null, null, null, null, null,
       '#000000', SpreadsheetApp.BorderStyle.SOLID_THICK
@@ -462,20 +403,10 @@ function applySevenRowBanding_(sheet) {
   }
 }
 
-
-// ============================================================
-// MODULE: Services.gs
-// ============================================================
-
-/** Добавление новой строки услуги во все блоки текущего листа-года. */
-
 function showAddServiceRowDialog() {
   const sheet = SpreadsheetApp.getActiveSheet();
   if (!/^\d{4}$/.test(sheet.getName())) {
-    SpreadsheetApp.getUi().alert(
-      'Сначала откройте лист нужного года, например 2026.\n\n' +
-      'Строка услуги будет добавлена именно в текущий лист.'
-    );
+    SpreadsheetApp.getUi().alert('Сначала откройте лист нужного года, например 2026.');
     return;
   }
 
@@ -489,7 +420,7 @@ button{padding:9px 14px;border:0;border-radius:6px;cursor:pointer}.primary{backg
 <h2>Добавить строку услуги</h2>
 <label for="serviceName">Название услуги</label>
 <input id="serviceName" value="Целевые взносы" autofocus>
-<div class="note">Скрипт проверит каждый блок от строки «Тариф» до следующей строки «Тариф». Если услуги нет, новая строка будет вставлена перед строкой «Сумма».</div>
+<div class="note">Если услуги нет, новая строка будет вставлена перед строкой «Сумма» во всех блоках текущего листа.</div>
 <div id="status"></div>
 <div class="buttons"><button class="secondary" onclick="google.script.host.close()">Отмена</button><button class="primary" onclick="run()">Добавить</button></div>
 <script>
@@ -509,14 +440,10 @@ function addServiceRowToCurrentSheet(serviceName) {
 
   const ss = SpreadsheetApp.getActive();
   const sheet = ss.getActiveSheet();
-  if (!/^\d{4}$/.test(sheet.getName())) {
-    throw new Error('Текущий лист должен называться годом, например 2026.');
-  }
+  if (!/^\d{4}$/.test(sheet.getName())) throw new Error('Текущий лист должен называться годом.');
 
   const lastRow = sheet.getLastRow();
   const lastColumn = Math.max(sheet.getLastColumn(), 2);
-  if (lastRow < 2) throw new Error('На листе нет блоков участков.');
-
   const labels = sheet.getRange(1, 2, lastRow, 1).getDisplayValues().flat().map(normalizeDnpRowLabel_);
   const tariffRows = [];
   for (let index = 1; index < labels.length; index++) {
@@ -532,30 +459,19 @@ function addServiceRowToCurrentSheet(serviceName) {
     const startRow = tariffRows[index];
     const endRow = index + 1 < tariffRows.length ? tariffRows[index + 1] - 1 : lastRow;
     const blockLabels = labels.slice(startRow - 1, endRow);
-
-    if (blockLabels.includes(normalizedService)) {
-      skipped++;
-      continue;
-    }
+    if (blockLabels.includes(normalizedService)) { skipped++; continue; }
 
     let sumRow = -1;
     for (let row = endRow; row >= startRow; row--) {
-      if (/^(сумма|итого)/.test(labels[row - 1])) {
-        sumRow = row;
-        break;
-      }
+      if (/^(сумма|итого)/.test(labels[row - 1])) { sumRow = row; break; }
     }
-    if (sumRow === -1) {
-      throw new Error('В блоке, начинающемся со строки ' + startRow + ', не найдена строка «Сумма».');
-    }
+    if (sumRow === -1) throw new Error('В блоке со строки ' + startRow + ' не найдена строка «Сумма».');
     operations.push(sumRow);
   }
 
-  // Вставляем снизу вверх, чтобы номера строк верхних блоков не сдвигались.
   operations.sort((a, b) => b - a).forEach(sumRow => {
     const sourceRow = Math.max(sumRow - 1, 1);
     const sourceHeight = sheet.getRowHeight(sourceRow);
-
     sheet.insertRowsBefore(sumRow, 1);
     sheet.getRange(sourceRow, 1, 1, lastColumn)
       .copyTo(sheet.getRange(sumRow, 1, 1, lastColumn), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
@@ -567,26 +483,8 @@ function addServiceRowToCurrentSheet(serviceName) {
   });
 
   applySevenRowBanding_(sheet);
-  ss.toast('Добавлено строк: ' + operations.length + '. Пропущено: ' + skipped + '.', 'ДНП', 7);
-
-  return {
-    ok: true,
-    added: operations.length,
-    skipped: skipped,
-    message: 'Готово. Добавлено: ' + operations.length + ', уже существовало: ' + skipped + '.'
-  };
+  return { ok: true, added: operations.length, skipped, message: 'Готово. Добавлено: ' + operations.length + ', уже существовало: ' + skipped + '.' };
 }
-
-
-// ============================================================
-// MODULE: Template.gs
-// ============================================================
-
-/**
- * Создание и открытие Google Docs-шаблона квитанции.
- *
- * Ширины колонок динамической таблицы задаются в пунктах (pt).
- */
 
 const DNP_PAYMENT_TABLE_WIDTHS = {
   name: 150,
@@ -597,32 +495,22 @@ const DNP_PAYMENT_TABLE_WIDTHS = {
   amount: 82,
 };
 
-function createReceiptTemplate() {
-  return createReceiptTemplateForCurrentFormat();
-}
+function createReceiptTemplate() { return createReceiptTemplateForCurrentFormat(); }
 
 function createReceiptTemplateForCurrentFormat() {
   const ui = SpreadsheetApp.getUi();
   const sheet = SpreadsheetApp.getActiveSheet();
-
   if (!/^\d{4}$/.test(sheet.getName())) {
-    ui.alert(
-      'Сначала откройте лист нужного года, например 2026.\n\n' +
-      'Список услуг для шаблона будет считан из текущего листа.'
-    );
+    ui.alert('Сначала откройте лист нужного года, например 2026.');
     return;
   }
 
   const services = getCurrentFormatServiceLabels_(sheet);
-  if (!services.length) {
-    ui.alert('В текущем листе не удалось определить строки услуг между «Тариф» и «Сумма».');
-    return;
-  }
+  if (!services.length) { ui.alert('Не удалось определить строки услуг.'); return; }
 
   const answer = ui.alert(
     'Создать шаблон под текущий формат?',
-    'Найдены строки:\n\n• ' + services.join('\n• ') +
-      '\n\nБудет создан новый Google Документ и назначен активным шаблоном.',
+    'Найдены строки:\n\n• ' + services.join('\n• ') + '\n\nБудет создан новый Google Документ.',
     ui.ButtonSet.YES_NO
   );
   if (answer !== ui.Button.YES) return;
@@ -632,68 +520,35 @@ function createReceiptTemplateForCurrentFormat() {
   const name = 'Шаблон квитанции ДНП Комфорт ' + timestamp;
   const doc = DocumentApp.create(name);
   const body = doc.getBody();
-
   body.clear();
-  body.appendParagraph('ДНП «Дачный поселок «КОМФОРТ»')
-    .setAlignment(DocumentApp.HorizontalAlignment.CENTER)
-    .editAsText().setBold(true).setFontSize(12);
-
+  body.appendParagraph('ДНП «Дачный поселок «КОМФОРТ»').setAlignment(DocumentApp.HorizontalAlignment.CENTER).editAsText().setBold(true);
   body.appendParagraph('');
-  body.appendParagraph('Наименование получателя платежа: ДНП «Дачный поселок «КОМФОРТ»');
-  body.appendParagraph('ИНН {{INN}} / КПП {{KPP}}');
-  body.appendParagraph('Р/с {{RS}} в {{BANK}}');
-  body.appendParagraph('БИК {{BIK}}  Кор/с {{KS}}');
+  body.appendParagraph('Участок № {{PLOT}}    {{MONTH_NAME}} {{YEAR}} года').setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+  body.appendParagraph('Сумма оплаты: {{TOTAL}} руб.').setAlignment(DocumentApp.HorizontalAlignment.CENTER).editAsText().setBold(true);
   body.appendParagraph('');
-  body.appendParagraph('Наименование платежа: Ежемесячные начисления ДНП «Дачный поселок «Комфорт»')
-    .setAlignment(DocumentApp.HorizontalAlignment.CENTER);
-  body.appendParagraph('');
-  body.appendParagraph('Участок № {{PLOT}}    {{MONTH_NAME}} {{YEAR}} года')
-    .setAlignment(DocumentApp.HorizontalAlignment.CENTER);
-  body.appendParagraph('Сумма оплаты: {{TOTAL}} руб.')
-    .setAlignment(DocumentApp.HorizontalAlignment.CENTER)
-    .editAsText().setBold(true);
-  body.appendParagraph('');
-
-  // Генератор сам вставит сюда строки Т1/Т2/Т3, водоотведения,
-  // целевых взносов и других поддерживаемых услуг.
   body.appendParagraph('{{PAYMENT_TABLE}}');
-
-  body.appendParagraph('');
-  body.appendParagraph('Назначение платежа: участок № {{PLOT}}, {{MONTH_NAME}} {{YEAR}} года.');
   doc.saveAndClose();
 
   const file = DriveApp.getFileById(doc.getId());
   file.moveTo(parent);
   saveTemplateId_(file.getId());
-
-  showDriveLinkDialog_(
-    'Шаблон создан',
-    file.getName() + '\nСтроки текущего формата: ' + services.join(', '),
-    file.getUrl()
-  );
+  showDriveLinkDialog_('Шаблон создан', file.getName(), file.getUrl());
 }
 
 function getCurrentFormatServiceLabels_(sheet) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-
-  const labels = sheet.getRange(1, 2, lastRow, 1)
-    .getDisplayValues()
-    .flat()
+  const labels = sheet.getRange(1, 2, lastRow, 1).getDisplayValues().flat()
     .map(value => String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim());
-
   let tariffRow = -1;
   let endRow = labels.length;
-
   for (let index = 1; index < labels.length; index++) {
     if (/^тариф(?:ы)?$/i.test(labels[index])) {
       if (tariffRow === -1) tariffRow = index;
       else { endRow = index; break; }
     }
   }
-
   if (tariffRow === -1) return [];
-
   const result = [];
   for (let index = tariffRow + 1; index < endRow; index++) {
     const label = labels[index];
@@ -718,7 +573,6 @@ function applyPaymentTableColumnWidths_(table) {
     DNP_PAYMENT_TABLE_WIDTHS.rate,
     DNP_PAYMENT_TABLE_WIDTHS.amount,
   ];
-
   for (let rowIndex = 0; rowIndex < table.getNumRows(); rowIndex++) {
     const row = table.getRow(rowIndex);
     for (let columnIndex = 0; columnIndex < row.getNumCells() && columnIndex < widths.length; columnIndex++) {
@@ -726,13 +580,6 @@ function applyPaymentTableColumnWidths_(table) {
     }
   }
 }
-
-
-// ============================================================
-// MODULE: PdfGenerator.gs
-// ============================================================
-
-/** Формирование PDF-квитанций строго через Google Docs-шаблон. */
 
 function generatePdfsForMonth(year, month) {
   year = Number(year);
@@ -760,63 +607,45 @@ function generatePdfsForMonth(year, month) {
   blocks.forEach((block, index) => {
     let tempFile = null;
     ss.toast('Формируется ' + (index + 1) + ' из ' + blocks.length + ': участок ' + block.plot, 'ДНП', 5);
-
     try {
       const receipt = buildReceiptData_(sheet, block, year, month, rates);
       const fileName = 'Квитанция_участок_' + sanitizePdfFileName_(block.plot) + '_' + year + '_' + String(month).padStart(2, '0') + '.pdf';
       trashFilesByName_(monthFolder, fileName);
-
       tempFile = templateFile.makeCopy('Временная квитанция ' + block.plot, monthFolder);
       const doc = DocumentApp.openById(tempFile.getId());
       fillReceiptTemplate_(doc, receipt);
       doc.saveAndClose();
-
       monthFolder.createFile(tempFile.getAs(MimeType.PDF).setName(fileName));
       tempFile.setTrashed(true);
       tempFile = null;
       created++;
-
       if (DNP_PDF_SLEEP_MS > 0) Utilities.sleep(DNP_PDF_SLEEP_MS);
     } catch (error) {
       failed++;
       errors.push('Участок ' + block.plot + ': ' + (error.message || error));
-      if (tempFile) {
-        try { tempFile.setTrashed(true); } catch (cleanupError) {}
-      }
+      if (tempFile) { try { tempFile.setTrashed(true); } catch (cleanupError) {} }
     }
   });
 
   const message = failed
     ? 'Создано PDF: ' + created + '. Ошибок: ' + failed + '. Первая ошибка: ' + errors[0]
     : 'Создано PDF: ' + created + '. Папка: ' + year + '/' + monthFolderName + '.';
-
   ss.toast(message, 'ДНП', 10);
-  return {
-    ok: failed === 0,
-    created,
-    failed,
-    folderId: monthFolder.getId(),
-    folderUrl: monthFolder.getUrl(),
-    message,
-  };
+  return { ok: failed === 0, created, failed, folderId: monthFolder.getId(), folderUrl: monthFolder.getUrl(), message };
 }
 
 function getReceiptBlocks_(sheet) {
   const lastRow = sheet.getLastRow();
   const rows = sheet.getRange(1, 1, lastRow, 2).getDisplayValues();
   const starts = [];
-
   for (let index = 1; index < rows.length; index++) {
     const plot = String(rows[index][0] || '').trim();
     const label = normalizeReceiptLabel_(rows[index][1]);
     if (/^тариф(?:ы)?$/.test(label)) {
-      if (!plot) {
-        throw new Error('В строке ' + (index + 1) + ' найден «Тариф», но в столбце A нет номера участка.');
-      }
+      if (!plot) throw new Error('В строке ' + (index + 1) + ' нет номера участка.');
       starts.push({ startRow: index + 1, plot });
     }
   }
-
   return starts.map((item, index) => ({
     plot: item.plot,
     startRow: item.startRow,
@@ -831,34 +660,20 @@ function buildReceiptData_(sheet, block, year, month, rates) {
   const lastColumn = Math.max(sheet.getLastColumn(), monthColumn);
   const values = sheet.getRange(block.startRow, 1, rowCount, lastColumn).getDisplayValues();
   const byLabel = {};
-
-  values.forEach(row => {
-    const label = normalizeReceiptLabel_(row[1]);
-    if (label) byLabel[label] = row;
-  });
+  values.forEach(row => { const label = normalizeReceiptLabel_(row[1]); if (label) byLabel[label] = row; });
 
   const paymentRows = [];
   let calculatedTotal = 0;
-
   ['т1', 'т2', 'т3'].forEach((label, index) => {
     const row = byLabel[label];
     if (!row) return;
-
     const current = parseReceiptNumber_(row[monthColumn - 1]);
     const previous = month > 1 ? parseReceiptNumber_(row[previousMonthColumn - 1]) : null;
     const usage = current !== null && previous !== null ? current - previous : null;
     const rate = rates['T' + (index + 1)];
     const amount = usage !== null && rate !== null ? usage * rate : null;
-
     if (amount !== null) calculatedTotal += amount;
-    paymentRows.push([
-      'Электроэнергия Т' + (index + 1),
-      formatReceiptValue_(current),
-      formatReceiptValue_(previous),
-      formatReceiptValue_(usage),
-      formatReceiptMoney_(rate),
-      formatReceiptMoney_(amount),
-    ]);
+    paymentRows.push(['Электроэнергия Т' + (index + 1), formatReceiptValue_(current), formatReceiptValue_(previous), formatReceiptValue_(usage), formatReceiptMoney_(rate), formatReceiptMoney_(amount)]);
   });
 
   const waterRow = findReceiptRow_(byLabel, [/^водоотвед/, /^вода$/]);
@@ -867,30 +682,17 @@ function buildReceiptData_(sheet, block, year, month, rates) {
     const previous = month > 1 ? parseReceiptNumber_(waterRow[previousMonthColumn - 1]) : null;
     const usage = current !== null && previous !== null ? current - previous : null;
     const amount = usage !== null && rates.WATER !== null ? usage * rates.WATER : null;
-
     if (amount !== null) calculatedTotal += amount;
-    paymentRows.push([
-      'Водоотведение',
-      formatReceiptValue_(current),
-      formatReceiptValue_(previous),
-      formatReceiptValue_(usage),
-      formatReceiptMoney_(rates.WATER),
-      formatReceiptMoney_(amount),
-    ]);
+    paymentRows.push(['Водоотведение', formatReceiptValue_(current), formatReceiptValue_(previous), formatReceiptValue_(usage), formatReceiptMoney_(rates.WATER), formatReceiptMoney_(amount)]);
   }
 
   const ignoredLabels = /^(тариф(?:ы)?|т1|т2|т3|квтч|квт·ч|квт\/ч|водоотвед.*|вода|сумма.*|итого.*)$/;
   values.forEach(row => {
-    const rawLabel = String(row[1] == null ? '' : row[1])
-      .replace(/\u00a0/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const rawLabel = String(row[1] == null ? '' : row[1]).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
     const label = normalizeReceiptLabel_(rawLabel);
     if (!label || ignoredLabels.test(label)) return;
-
     const amount = parseReceiptNumber_(row[monthColumn - 1]);
     if (amount === null) return;
-
     calculatedTotal += amount;
     paymentRows.push([rawLabel, '—', '—', '—', '—', formatReceiptMoney_(amount)]);
   });
@@ -898,15 +700,7 @@ function buildReceiptData_(sheet, block, year, month, rates) {
   const totalRow = findReceiptRow_(byLabel, [/^сумма/, /^итого/]);
   const storedTotal = totalRow ? parseReceiptNumber_(totalRow[monthColumn - 1]) : null;
   const total = storedTotal !== null ? storedTotal : calculatedTotal;
-
-  return {
-    plot: block.plot,
-    year,
-    month,
-    monthName: getRussianMonthName_(month),
-    total,
-    paymentRows,
-  };
+  return { plot: block.plot, year, month, monthName: getRussianMonthName_(month), total, paymentRows };
 }
 
 function fillReceiptTemplate_(doc, receipt) {
@@ -926,33 +720,30 @@ function insertPaymentTable_(body, paymentRows, total) {
   const paragraph = found.getElement().asText().getParent().asParagraph();
   const index = body.getChildIndex(paragraph);
   const rows = [[
-    'Наименование платежа',
-    'Текущее',
-    'Предыдущее',
-    'Объём',
-    'Тариф',
-    'Сумма к оплате',
+    'Наименование платежа', 'Текущее', 'Предыдущее', 'Объём', 'Тариф', 'Сумма к оплате',
   ]].concat(paymentRows);
   rows.push(['', '', '', '', 'ИТОГО К ОПЛАТЕ', formatReceiptMoney_(total) + ' руб.']);
 
   const table = body.insertTable(index, rows);
   paragraph.editAsText().setText('');
-
   table.getRow(0).editAsText().setBold(true);
   applyPaymentTableColumnWidths_(table);
 
-  // Объединяем ячейки 1–5. TableCell.merge() объединяет текущую
-  // ячейку с предыдущей, поэтому четыре раза объединяем вторую ячейку
-  // с первой. Последний, шестой столбец остаётся отдельным для суммы.
   const totalRow = table.getRow(table.getNumRows() - 1);
-  for (let mergeIndex = 0; mergeIndex < 4; mergeIndex++) {
-    totalRow.getCell(1).merge();
-  }
+  for (let mergeIndex = 0; mergeIndex < 4; mergeIndex++) totalRow.getCell(1).merge();
 
   const labelCell = totalRow.getCell(0);
   const amountCell = totalRow.getCell(1);
   labelCell.setText('ИТОГО К ОПЛАТЕ');
   amountCell.setText(formatReceiptMoney_(total) + ' руб.');
+  labelCell.setWidth(
+    DNP_PAYMENT_TABLE_WIDTHS.name +
+    DNP_PAYMENT_TABLE_WIDTHS.current +
+    DNP_PAYMENT_TABLE_WIDTHS.previous +
+    DNP_PAYMENT_TABLE_WIDTHS.usage +
+    DNP_PAYMENT_TABLE_WIDTHS.rate
+  );
+  amountCell.setWidth(DNP_PAYMENT_TABLE_WIDTHS.amount);
   labelCell.editAsText().setBold(true);
   amountCell.editAsText().setBold(true);
   labelCell.getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
@@ -960,37 +751,22 @@ function insertPaymentTable_(body, paymentRows, total) {
 
 function getReceiptTemplateFile_() {
   const templateId = getStoredTemplateId_();
-  if (!templateId) {
-    throw new Error(
-      'На листе «Настройки» не заполнен параметр templateDocId. ' +
-      'Вставьте в столбец B ID старого Google Docs-шаблона.'
-    );
-  }
-
+  if (!templateId) throw new Error('На листе «Настройки» не заполнен параметр templateDocId.');
   try {
     const file = DriveApp.getFileById(templateId);
-    if (file.getMimeType() !== MimeType.GOOGLE_DOCS) {
-      throw new Error('Файл templateDocId не является Google Docs.');
-    }
+    if (file.getMimeType() !== MimeType.GOOGLE_DOCS) throw new Error('Файл templateDocId не является Google Docs.');
     return file;
   } catch (error) {
-    throw new Error(
-      'Не удалось открыть шаблон из строки templateDocId на листе «Настройки». ' +
-      'Проверьте ID и доступ к документу.\n\n' + (error.message || error)
-    );
+    throw new Error('Не удалось открыть шаблон из строки templateDocId. ' + (error.message || error));
   }
 }
 
 function getStoredTemplateId_() {
   const settingsValue = getTemplateIdFromSettings_();
   if (settingsValue) return settingsValue;
-
   const stores = getAvailablePropertyStores_();
   for (let i = 0; i < stores.length; i++) {
-    try {
-      const value = stores[i].getProperty('TEMPLATE_DOC_ID');
-      if (value) return extractGoogleFileId_(value);
-    } catch (error) {}
+    try { const value = stores[i].getProperty('TEMPLATE_DOC_ID'); if (value) return extractGoogleFileId_(value); } catch (error) {}
   }
   return '';
 }
@@ -998,19 +774,10 @@ function getStoredTemplateId_() {
 function getTemplateIdFromSettings_() {
   const settings = SpreadsheetApp.getActive().getSheetByName('Настройки');
   if (!settings || settings.getLastRow() < 1) return '';
-
-  const values = settings.getRange(
-    1,
-    1,
-    settings.getLastRow(),
-    Math.max(2, Math.min(settings.getLastColumn(), 3))
-  ).getDisplayValues();
-
+  const values = settings.getRange(1, 1, settings.getLastRow(), Math.max(2, Math.min(settings.getLastColumn(), 3))).getDisplayValues();
   for (let row = 0; row < values.length; row++) {
     const key = String(values[row][0] || '').trim().toLowerCase();
-    if (key === 'templatedocid' || key === 'template_doc_id' || key === 'id шаблона') {
-      return extractGoogleFileId_(values[row][1]);
-    }
+    if (key === 'templatedocid' || key === 'template_doc_id' || key === 'id шаблона') return extractGoogleFileId_(values[row][1]);
   }
   return '';
 }
@@ -1018,38 +785,22 @@ function getTemplateIdFromSettings_() {
 function saveTemplateId_(templateId) {
   const cleanId = extractGoogleFileId_(templateId);
   const settings = SpreadsheetApp.getActive().getSheetByName('Настройки');
-
   if (settings) {
     const lastRow = Math.max(settings.getLastRow(), 1);
-    const values = settings.getRange(
-      1,
-      1,
-      lastRow,
-      Math.max(2, Math.min(settings.getLastColumn(), 3))
-    ).getDisplayValues();
-
+    const values = settings.getRange(1, 1, lastRow, Math.max(2, Math.min(settings.getLastColumn(), 3))).getDisplayValues();
     let targetRow = 0;
     for (let row = 0; row < values.length; row++) {
       const key = String(values[row][0] || '').trim().toLowerCase();
-      if (key === 'templatedocid' || key === 'template_doc_id' || key === 'id шаблона') {
-        targetRow = row + 1;
-        break;
-      }
+      if (key === 'templatedocid' || key === 'template_doc_id' || key === 'id шаблона') { targetRow = row + 1; break; }
     }
-
     if (!targetRow) {
       targetRow = settings.getLastRow() + 1;
       settings.getRange(targetRow, 1).setValue('templateDocId');
-      if (settings.getMaxColumns() >= 3) {
-        settings.getRange(targetRow, 3).setValue('ID Google Docs шаблона квитанции');
-      }
+      if (settings.getMaxColumns() >= 3) settings.getRange(targetRow, 3).setValue('ID Google Docs шаблона квитанции');
     }
     settings.getRange(targetRow, 2).setValue(cleanId);
   }
-
-  getAvailablePropertyStores_().forEach(store => {
-    try { store.setProperty('TEMPLATE_DOC_ID', cleanId); } catch (error) {}
-  });
+  getAvailablePropertyStores_().forEach(store => { try { store.setProperty('TEMPLATE_DOC_ID', cleanId); } catch (error) {} });
 }
 
 function extractGoogleFileId_(value) {
@@ -1063,143 +814,62 @@ function getReceiptRates_() {
   const result = { T1: null, T2: null, T3: null, WATER: null };
   const settings = SpreadsheetApp.getActive().getSheetByName('Настройки');
   if (!settings || settings.getLastRow() < 2) return result;
-
-  settings.getRange(2, 1, settings.getLastRow() - 1, 2)
-    .getDisplayValues()
-    .forEach(row => {
-      const key = normalizeSettingKey_(row[0]);
-      const value = parseReceiptNumber_(row[1]);
-
-      if (/^(tariff|тариф)t?1$/.test(key) || key === 'тариф1') result.T1 = value;
-      if (/^(tariff|тариф)t?2$/.test(key) || key === 'тариф2') result.T2 = value;
-      if (/^(tariff|тариф)t?3$/.test(key) || key === 'тариф3') result.T3 = value;
-      if (/водоотвед|sewage|wastewater|watertariff|tariffwater/.test(key)) result.WATER = value;
-    });
-
+  settings.getRange(2, 1, settings.getLastRow() - 1, 2).getDisplayValues().forEach(row => {
+    const key = normalizeSettingKey_(row[0]);
+    const value = parseReceiptNumber_(row[1]);
+    if (/^(tariff|тариф)t?1$/.test(key) || key === 'тариф1') result.T1 = value;
+    if (/^(tariff|тариф)t?2$/.test(key) || key === 'тариф2') result.T2 = value;
+    if (/^(tariff|тариф)t?3$/.test(key) || key === 'тариф3') result.T3 = value;
+    if (/водоотвед|sewage|wastewater|watertariff|tariffwater/.test(key)) result.WATER = value;
+  });
   return result;
 }
 
 function normalizeSettingKey_(value) {
-  return String(value == null ? '' : value)
-    .replace(/\u00a0/g, ' ')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_\-.,:;()]+/g, '');
+  return String(value == null ? '' : value).replace(/\u00a0/g, ' ').trim().toLowerCase().replace(/[\s_\-.,:;()]+/g, '');
 }
 
 function findReceiptRow_(byLabel, patterns) {
   const labels = Object.keys(byLabel);
-  for (let i = 0; i < labels.length; i++) {
-    if (patterns.some(pattern => pattern.test(labels[i]))) return byLabel[labels[i]];
-  }
+  for (let i = 0; i < labels.length; i++) if (patterns.some(pattern => pattern.test(labels[i]))) return byLabel[labels[i]];
   return null;
 }
 
-function replaceReceiptText_(body, marker, value) {
-  body.replaceText(escapeReceiptRegex_(marker), String(value == null ? '' : value));
-}
-
-function escapeReceiptRegex_(text) {
-  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function normalizeReceiptLabel_(value) {
-  return String(value == null ? '' : value)
-    .replace(/\u00a0/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase()
-    .replace(/,?\s*₽$/i, '');
-}
+function replaceReceiptText_(body, marker, value) { body.replaceText(escapeReceiptRegex_(marker), String(value == null ? '' : value)); }
+function escapeReceiptRegex_(text) { return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function normalizeReceiptLabel_(value) { return String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase().replace(/,?\s*₽$/i, ''); }
 
 function parseReceiptNumber_(value) {
-  const text = String(value == null ? '' : value)
-    .replace(/\u00a0/g, '')
-    .replace(/\s/g, '')
-    .replace(',', '.')
-    .replace(/[^0-9.\-]/g, '');
+  const text = String(value == null ? '' : value).replace(/\u00a0/g, '').replace(/\s/g, '').replace(',', '.').replace(/[^0-9.\-]/g, '');
   if (!text || text === '-' || text === '.') return null;
   const number = Number(text);
   return Number.isFinite(number) ? number : null;
 }
 
 function formatReceiptValue_(value) {
-  return value === null || value === undefined || !Number.isFinite(Number(value))
-    ? ''
-    : Number(value).toLocaleString('ru-RU', { maximumFractionDigits: 3 });
+  return value === null || value === undefined || !Number.isFinite(Number(value)) ? '' : Number(value).toLocaleString('ru-RU', { maximumFractionDigits: 3 });
 }
 
 function formatReceiptMoney_(value) {
-  return value === null || value === undefined || !Number.isFinite(Number(value))
-    ? ''
-    : Number(value).toLocaleString('ru-RU', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
+  return value === null || value === undefined || !Number.isFinite(Number(value)) ? '' : Number(value).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function getOrCreatePdfChildFolder_(parent, name) {
-  const folders = parent.getFoldersByName(name);
-  return folders.hasNext() ? folders.next() : parent.createFolder(name);
-}
-
-function getRussianMonthName_(month) {
-  return [
-    'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
-  ][month - 1];
-}
-
-function sanitizePdfFileName_(value) {
-  return String(value).trim().replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_');
-}
-
-function trashFilesByName_(folder, fileName) {
-  const files = folder.getFilesByName(fileName);
-  while (files.hasNext()) {
-    try { files.next().setTrashed(true); } catch (error) {}
-  }
-}
-
-
-// ============================================================
-// MODULE: PdfLog.gs
-// ============================================================
-
-/** Минимальный журнал формирования PDF. */
+function getOrCreatePdfChildFolder_(parent, name) { const folders = parent.getFoldersByName(name); return folders.hasNext() ? folders.next() : parent.createFolder(name); }
+function getRussianMonthName_(month) { return ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'][month - 1]; }
+function sanitizePdfFileName_(value) { return String(value).trim().replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_'); }
+function trashFilesByName_(folder, fileName) { const files = folder.getFilesByName(fileName); while (files.hasNext()) { try { files.next().setTrashed(true); } catch (error) {} } }
 
 const DNP_PDF_LOG_SHEET = 'Журнал PDF';
 
-/**
- * Основная точка запуска из интерфейса.
- * Подробная диагностика отключена: генератор работает напрямую.
- * Если DNP_PDF_LOG_ENABLED=true, записывается только одна итоговая строка.
- */
 function generatePdfsForMonthWithLog(year, month) {
   const runId = Utilities.getUuid().slice(0, 8);
   const startedAt = new Date();
-
   try {
     const result = generatePdfsForMonth(year, month);
-
-    if (DNP_PDF_LOG_ENABLED) {
-      appendPdfLog_(
-        runId,
-        'ИТОГ',
-        year,
-        month,
-        '',
-        result && result.ok !== false ? 'OK' : 'ERROR',
-        (result && result.message ? result.message : 'Формирование завершено') +
-          '; длительность=' + Math.round((new Date().getTime() - startedAt.getTime()) / 1000) + ' сек.'
-      );
-    }
-
+    if (DNP_PDF_LOG_ENABLED) appendPdfLog_(runId, 'ИТОГ', year, month, '', result && result.ok !== false ? 'OK' : 'ERROR', (result.message || '') + '; длительность=' + Math.round((new Date().getTime() - startedAt.getTime()) / 1000) + ' сек.');
     return result;
   } catch (error) {
-    if (DNP_PDF_LOG_ENABLED) {
-      appendPdfLog_(runId, 'ОШИБКА', year, month, '', 'ERROR', getDetailedErrorText_(error));
-    }
+    if (DNP_PDF_LOG_ENABLED) appendPdfLog_(runId, 'ОШИБКА', year, month, '', 'ERROR', getDetailedErrorText_(error));
     throw error;
   }
 }
@@ -1209,107 +879,41 @@ function ensurePdfLogSheet_() {
   let sheet = ss.getSheetByName(DNP_PDF_LOG_SHEET);
   if (!sheet) {
     sheet = ss.insertSheet(DNP_PDF_LOG_SHEET);
-    sheet.getRange(1, 1, 1, 8).setValues([[
-      'Дата', 'Запуск', 'Этап', 'Год', 'Месяц', 'Участок', 'Статус', 'Подробности'
-    ]]);
+    sheet.getRange(1, 1, 1, 8).setValues([['Дата','Запуск','Этап','Год','Месяц','Участок','Статус','Подробности']]);
     sheet.setFrozenRows(1);
   }
   return sheet;
 }
 
-function appendPdfLog_(runId, stage, year, month, plot, status, details) {
-  const sheet = ensurePdfLogSheet_();
-  sheet.appendRow([
-    new Date(), runId || '', stage || '', year || '', month || '', plot || '', status || '', details || ''
-  ]);
-}
-
-function openPdfLogSheet() {
-  const sheet = ensurePdfLogSheet_();
-  sheet.showSheet();
-  SpreadsheetApp.getActive().setActiveSheet(sheet);
-}
-
-function clearPdfLog() {
-  const ui = SpreadsheetApp.getUi();
-  if (ui.alert(
-    'Очистить журнал PDF?',
-    'Будут удалены все строки журнала PDF, кроме заголовка.',
-    ui.ButtonSet.YES_NO
-  ) !== ui.Button.YES) return;
-
-  const sheet = ensurePdfLogSheet_();
-  if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getMaxColumns()).clearContent();
-  }
-  SpreadsheetApp.getActive().toast('Журнал PDF очищен', 'ДНП', 5);
-}
-
-function getDetailedErrorText_(error) {
-  if (!error) return 'Неизвестная ошибка';
-  return error.message || String(error);
-}
-
-
-// ============================================================
-// MODULE: PdfCleanup.gs
-// ============================================================
-
-/** Очистка сформированных PDF. */
+function appendPdfLog_(runId, stage, year, month, plot, status, details) { ensurePdfLogSheet_().appendRow([new Date(),runId||'',stage||'',year||'',month||'',plot||'',status||'',details||'']); }
+function openPdfLogSheet() { const sheet = ensurePdfLogSheet_(); sheet.showSheet(); SpreadsheetApp.getActive().setActiveSheet(sheet); }
+function clearPdfLog() { const ui = SpreadsheetApp.getUi(); if (ui.alert('Очистить журнал PDF?','Будут удалены все строки, кроме заголовка.',ui.ButtonSet.YES_NO)!==ui.Button.YES)return; const sheet=ensurePdfLogSheet_(); if(sheet.getLastRow()>1)sheet.getRange(2,1,sheet.getLastRow()-1,sheet.getMaxColumns()).clearContent(); }
+function getDetailedErrorText_(error) { return error ? (error.message || String(error)) : 'Неизвестная ошибка'; }
 
 function clearGeneratedPdfs() {
   const ui = SpreadsheetApp.getUi();
-  const answer = ui.alert(
-    'Очистить сформированные PDF?',
-    'Все PDF-файлы в папке квитанций и её подпапках будут перемещены в корзину. Папки и шаблон останутся.',
-    ui.ButtonSet.YES_NO
-  );
-  if (answer !== ui.Button.YES) return;
-
-  const ss = SpreadsheetApp.getActive();
-  try {
-    ss.toast('Поиск сформированных PDF…', 'ДНП', 5);
-    const folder = getDnpPdfFolder_();
-    const result = trashDnpPdfFilesRecursively_(folder);
-    const message = result.failed
-      ? 'Перемещено в корзину: ' + result.deleted + '. Не удалось удалить: ' + result.failed + '.'
-      : 'Перемещено в корзину PDF-файлов: ' + result.deleted + '.';
-    ss.toast(message, 'ДНП', 8);
-    ui.alert('Очистка завершена', message, ui.ButtonSet.OK);
-  } catch (error) {
-    ui.alert('Ошибка очистки PDF', error.message || String(error), ui.ButtonSet.OK);
-    throw error;
-  }
+  if (ui.alert('Очистить сформированные PDF?','Все PDF-файлы будут перемещены в корзину.',ui.ButtonSet.YES_NO)!==ui.Button.YES)return;
+  const folder = getDnpPdfFolder_();
+  const result = trashDnpPdfFilesRecursively_(folder);
+  ui.alert('Очистка завершена','Перемещено в корзину PDF-файлов: '+result.deleted+'.',ui.ButtonSet.OK);
 }
 
 function getDnpPdfFolder_() {
   const stores = getAvailablePropertyStores_();
   for (let i = 0; i < stores.length; i++) {
-    try {
-      const id = stores[i].getProperty('PDF_FOLDER_ID');
-      if (id) {
-        const folder = DriveApp.getFolderById(id);
-        folder.getName();
-        return folder;
-      }
-    } catch (error) {}
+    try { const id = stores[i].getProperty('PDF_FOLDER_ID'); if (id) return DriveApp.getFolderById(id); } catch (error) {}
   }
-
   const parent = getSpreadsheetParentFolder_();
   const folders = parent.getFolders();
   while (folders.hasNext()) {
     const folder = folders.next();
-    if (/^(Квитанции ДНП Комфорт|Квитанции|Receipts)/i.test(folder.getName())) {
-      saveProperty_('PDF_FOLDER_ID', folder.getId());
-      return folder;
-    }
+    if (/^(Квитанции ДНП Комфорт|Квитанции|Receipts)/i.test(folder.getName())) { saveProperty_('PDF_FOLDER_ID', folder.getId()); return folder; }
   }
   throw new Error('Папка квитанций не найдена. Выполните первичную настройку.');
 }
 
 function trashDnpPdfFilesRecursively_(folder) {
-  let deleted = 0;
-  let failed = 0;
+  let deleted = 0, failed = 0;
   const files = folder.getFiles();
   while (files.hasNext()) {
     const file = files.next();
@@ -1317,258 +921,59 @@ function trashDnpPdfFilesRecursively_(folder) {
     try { file.setTrashed(true); deleted++; } catch (error) { failed++; }
   }
   const children = folder.getFolders();
-  while (children.hasNext()) {
-    const result = trashDnpPdfFilesRecursively_(children.next());
-    deleted += result.deleted;
-    failed += result.failed;
-  }
+  while (children.hasNext()) { const result=trashDnpPdfFilesRecursively_(children.next()); deleted+=result.deleted; failed+=result.failed; }
   return { deleted, failed };
 }
-
-
-// ============================================================
-// MODULE: Mail.gs
-// ============================================================
-
-/** Работа с листом почты и последовательная отправка квитанций. */
 
 function syncEmailSheetPlots_() {
   const ss = SpreadsheetApp.getActive();
   const emailSheet = ss.getSheetByName(DNP_SERVICE_SHEETS.emails);
   const years = getYearSheetNames_();
   if (!emailSheet || !years.length) return;
-
   ensureEmailSheetHeaders_(emailSheet);
   const source = ss.getSheetByName(years[years.length - 1]);
-  const blocks = getReceiptBlocks_(source);
-  const plots = blocks.map(block => String(block.plot).trim());
-  const existing = emailSheet.getLastRow() > 1
-    ? emailSheet.getRange(2, 1, emailSheet.getLastRow() - 1, 4).getValues()
-    : [];
+  const plots = getReceiptBlocks_(source).map(block => String(block.plot).trim());
+  const existing = emailSheet.getLastRow() > 1 ? emailSheet.getRange(2,1,emailSheet.getLastRow()-1,4).getValues() : [];
   const byPlot = new Map(existing.map(row => [String(row[0]).trim(), row]));
-  const rows = plots.map(plot => byPlot.get(plot) || [plot, '', '', false]);
-
-  if (emailSheet.getLastRow() > 1) {
-    emailSheet.getRange(2, 1, emailSheet.getLastRow() - 1, 4).clearContent();
-  }
-  if (rows.length) emailSheet.getRange(2, 1, rows.length, 4).setValues(rows);
-  if (rows.length) emailSheet.getRange(2, 4, rows.length, 1).insertCheckboxes();
+  const rows = plots.map(plot => byPlot.get(plot) || [plot,'','',false]);
+  if (emailSheet.getLastRow() > 1) emailSheet.getRange(2,1,emailSheet.getLastRow()-1,4).clearContent();
+  if (rows.length) emailSheet.getRange(2,1,rows.length,4).setValues(rows);
+  if (rows.length) emailSheet.getRange(2,4,rows.length,1).insertCheckboxes();
 }
 
-function ensureEmailSheetHeaders_(sheet) {
-  sheet.getRange('A1:D1').setValues([['Участок', 'Email', 'ФИО', 'Отправить']]);
-  sheet.setFrozenRows(1);
-  if (sheet.getMaxRows() > 1) sheet.getRange(2, 4, sheet.getMaxRows() - 1, 1).insertCheckboxes();
-}
+function ensureEmailSheetHeaders_(sheet) { sheet.getRange('A1:D1').setValues([['Участок','Email','ФИО','Отправить']]); sheet.setFrozenRows(1); if(sheet.getMaxRows()>1)sheet.getRange(2,4,sheet.getMaxRows()-1,1).insertCheckboxes(); }
 
 function fillTestEmails() {
-  const ss = SpreadsheetApp.getActive();
-  let sheet = ss.getSheetByName(DNP_SERVICE_SHEETS.emails);
-  if (!sheet) { ensureServiceSheets_(); sheet = ss.getSheetByName(DNP_SERVICE_SHEETS.emails); }
-  ensureEmailSheetHeaders_(sheet);
-  if (sheet.getLastRow() < 2) syncEmailSheetPlots_();
-
-  const count = Math.max(sheet.getLastRow() - 1, 0);
-  if (!count) { SpreadsheetApp.getUi().alert('На листе «Почты» нет участков.'); return; }
-
-  const values = sheet.getRange(2, 1, count, 4).getValues();
-  let filled = 0;
-  values.forEach(row => {
-    if (row[0] && !row[1]) {
-      row[1] = String(row[0]).replace(/[^0-9A-Za-zА-Яа-я_-]+/g, '_') + '@mail.ru';
-      filled++;
-    }
-  });
-  sheet.getRange(2, 1, count, 4).setValues(values);
-  sheet.getRange(2, 4, count, 1).insertCheckboxes();
-  ss.toast('Добавлено тестовых адресов: ' + filled, 'ДНП', 5);
+  const ss=SpreadsheetApp.getActive(); let sheet=ss.getSheetByName(DNP_SERVICE_SHEETS.emails); if(!sheet){ensureServiceSheets_();sheet=ss.getSheetByName(DNP_SERVICE_SHEETS.emails);} ensureEmailSheetHeaders_(sheet); if(sheet.getLastRow()<2)syncEmailSheetPlots_();
+  const count=Math.max(sheet.getLastRow()-1,0); if(!count){SpreadsheetApp.getUi().alert('На листе «Почты» нет участков.');return;}
+  const values=sheet.getRange(2,1,count,4).getValues(); let filled=0; values.forEach(row=>{if(row[0]&&!row[1]){row[1]=String(row[0]).replace(/[^0-9A-Za-zА-Яа-я_-]+/g,'_')+'@mail.ru';filled++;}}); sheet.getRange(2,1,count,4).setValues(values); sheet.getRange(2,4,count,1).insertCheckboxes(); ss.toast('Добавлено тестовых адресов: '+filled,'ДНП',5);
 }
 
 function sendReceipts() {
-  const years = getYearSheetNames_();
-  if (!years.length) throw new Error('Не найдены листы с названиями годов.');
-
-  const now = new Date();
-  const currentYear = String(now.getFullYear());
-  const currentMonth = now.getMonth() + 1;
-  const defaultYear = years.includes(currentYear) ? currentYear : years[years.length - 1];
-  const yearOptions = years.map(year =>
-    '<option value="' + year + '"' + (year === defaultYear ? ' selected' : '') + '>' + year + '</option>'
-  ).join('');
-
-  const html = HtmlService.createHtmlOutput(`
+  const years=getYearSheetNames_(); if(!years.length)throw new Error('Не найдены листы с названиями годов.');
+  const now=new Date(),currentYear=String(now.getFullYear()),currentMonth=now.getMonth()+1,defaultYear=years.includes(currentYear)?currentYear:years[years.length-1];
+  const yearOptions=years.map(year=>'<option value="'+year+'"'+(year===defaultYear?' selected':'')+'>'+year+'</option>').join('');
+  const html=HtmlService.createHtmlOutput(`
 <!doctype html><html><head><base target="_top"><style>
-body{font:14px Arial,sans-serif;padding:18px;color:#202124}h2{margin:0 0 16px;font-size:18px}
-label{display:block;margin:12px 0 6px;font-weight:600}select{width:100%;box-sizing:border-box;padding:9px;border:1px solid #dadce0;border-radius:6px}
-.note{background:#f8f9fa;padding:10px;border-radius:6px;margin-top:14px;line-height:1.4}.buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
-button{padding:9px 14px;border:0;border-radius:6px;cursor:pointer}.primary{background:#1a73e8;color:#fff}.secondary{background:#f1f3f4}#status{margin-top:12px;min-height:36px;color:#5f6368}
-</style></head><body><h2>Отправка квитанций</h2>
-<label>Год</label><select id="year">${yearOptions}</select>
-<label>Месяц</label><select id="month">
-<option value="1">Январь</option><option value="2">Февраль</option><option value="3">Март</option><option value="4">Апрель</option>
-<option value="5">Май</option><option value="6">Июнь</option><option value="7">Июль</option><option value="8">Август</option>
-<option value="9">Сентябрь</option><option value="10">Октябрь</option><option value="11">Ноябрь</option><option value="12">Декабрь</option></select>
-<div class="note">Будут отправлены только строки листа «Почты», где заполнен Email и установлена галка «Отправить».</div>
-<div id="status"></div><div class="buttons"><button class="secondary" onclick="google.script.host.close()">Отмена</button><button class="primary" id="send" onclick="run()">Отправить</button></div>
-<script>
-document.getElementById('month').value='${currentMonth}';
-function run(){const b=document.getElementById('send'),s=document.getElementById('status');b.disabled=true;s.textContent='Идёт последовательная отправка…';google.script.run.withSuccessHandler(r=>{document.body.innerHTML='<h2>Отправка завершена</h2><div class="note">Отправлено писем: <b>'+Number(r.sent||0)+'</b><br>Ошибок: <b>'+Number(r.failed||0)+'</b><br>Пропущено: <b>'+Number(r.skipped||0)+'</b></div><div class="buttons"><button class="primary" onclick="google.script.host.close()">Закрыть</button></div>'}).withFailureHandler(e=>{s.textContent='Ошибка: '+e.message;b.disabled=false}).sendReceiptsForMonth(Number(document.getElementById('year').value),Number(document.getElementById('month').value))}
-</script></body></html>`).setWidth(460).setHeight(420);
-  SpreadsheetApp.getUi().showModalDialog(html, 'ДНП');
+body{font:14px Arial,sans-serif;padding:18px;color:#202124}h2{margin:0 0 16px;font-size:18px}label{display:block;margin:12px 0 6px;font-weight:600}select{width:100%;box-sizing:border-box;padding:9px;border:1px solid #dadce0;border-radius:6px}.note{background:#f8f9fa;padding:10px;border-radius:6px;margin-top:14px;line-height:1.4}.buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}button{padding:9px 14px;border:0;border-radius:6px;cursor:pointer}.primary{background:#1a73e8;color:#fff}.secondary{background:#f1f3f4}#status{margin-top:12px;min-height:36px;color:#5f6368}
+</style></head><body><h2>Отправка квитанций</h2><label>Год</label><select id="year">${yearOptions}</select><label>Месяц</label><select id="month"><option value="1">Январь</option><option value="2">Февраль</option><option value="3">Март</option><option value="4">Апрель</option><option value="5">Май</option><option value="6">Июнь</option><option value="7">Июль</option><option value="8">Август</option><option value="9">Сентябрь</option><option value="10">Октябрь</option><option value="11">Ноябрь</option><option value="12">Декабрь</option></select><div class="note">Будут отправлены только отмеченные строки листа «Почты».</div><div id="status"></div><div class="buttons"><button class="secondary" onclick="google.script.host.close()">Отмена</button><button class="primary" id="send" onclick="run()">Отправить</button></div>
+<script>document.getElementById('month').value='${currentMonth}';function run(){const b=document.getElementById('send'),s=document.getElementById('status');b.disabled=true;s.textContent='Идёт последовательная отправка…';google.script.run.withSuccessHandler(r=>{document.body.innerHTML='<h2>Отправка завершена</h2><div class="note">Отправлено писем: <b>'+Number(r.sent||0)+'</b><br>Ошибок: <b>'+Number(r.failed||0)+'</b><br>Пропущено: <b>'+Number(r.skipped||0)+'</b></div><div class="buttons"><button class="primary" onclick="google.script.host.close()">Закрыть</button></div>'}).withFailureHandler(e=>{s.textContent='Ошибка: '+e.message;b.disabled=false}).sendReceiptsForMonth(Number(document.getElementById('year').value),Number(document.getElementById('month').value))}</script></body></html>`).setWidth(460).setHeight(420);
+  SpreadsheetApp.getUi().showModalDialog(html,'ДНП');
 }
 
 function sendReceiptsForMonth(year, month) {
-  year = Number(year);
-  month = Number(month);
-  if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new Error('Некорректный год.');
-  if (!Number.isInteger(month) || month < 1 || month > 12) throw new Error('Некорректный месяц.');
-
-  const ss = SpreadsheetApp.getActive();
-  let sheet = ss.getSheetByName(DNP_SERVICE_SHEETS.emails);
-  if (!sheet) { ensureServiceSheets_(); sheet = ss.getSheetByName(DNP_SERVICE_SHEETS.emails); }
-  ensureEmailSheetHeaders_(sheet);
-
-  const root = getDnpPdfFolder_();
-  const yearFolder = findChildFolderByNames_(root, [String(year)]);
-  if (!yearFolder) throw new Error('Папка года «' + year + '» не найдена. Сначала сформируйте PDF.');
-  const monthFolderName = String(month).padStart(2, '0') + ' ' + getRussianMonthName_(month);
-  const monthFolder = findChildFolderByNames_(yearFolder, [monthFolderName]);
-  if (!monthFolder) throw new Error('Папка «' + monthFolderName + '» не найдена. Сначала сформируйте PDF.');
-
-  const count = Math.max(sheet.getLastRow() - 1, 0);
-  if (!count) throw new Error('На листе «Почты» нет получателей.');
-  const rows = sheet.getRange(2, 1, count, 4).getValues();
-  const subjectTemplate = getMailSetting_('emailSubject') || 'Квитанция ДНП Комфорт: участок {{PLOT}}, {{MONTH_NAME}} {{YEAR}}';
-  const bodyTemplate = getMailSetting_('emailBody') || 'Здравствуйте{{NAME_PART}}!\n\nНаправляем квитанцию по участку № {{PLOT}} за {{MONTH_NAME}} {{YEAR}} года.\n\nС уважением, ДНП «Комфорт».';
-
-  let selected = 0;
-  let sent = 0;
-  let failed = 0;
-  let skipped = 0;
-  const errors = [];
-
-  rows.forEach((row, index) => {
-    const plot = String(row[0] == null ? '' : row[0]).trim();
-    const email = String(row[1] == null ? '' : row[1]).trim();
-    const name = String(row[2] == null ? '' : row[2]).trim();
-    const shouldSend = isSendFlagEnabled_(row[3]);
-    if (!shouldSend) return;
-    selected++;
-
-    if (!plot || !email) {
-      skipped++;
-      appendJournalRow_('EMAIL', year, month, plot, email, 'SKIP', 'Не заполнен участок или Email');
-      return;
-    }
-
-    const fileName = 'Квитанция_участок_' + sanitizePdfFileName_(plot) + '_' + year + '_' + String(month).padStart(2, '0') + '.pdf';
-    const files = monthFolder.getFilesByName(fileName);
-    if (!files.hasNext()) {
-      failed++;
-      const text = 'Не найден PDF: ' + fileName;
-      errors.push('Участок ' + plot + ': ' + text);
-      appendJournalRow_('EMAIL', year, month, plot, email, 'ERROR', text);
-      return;
-    }
-
-    try {
-      const pdf = files.next();
-      const monthNumber = String(month).padStart(2, '0');
-      const monthName = getRussianMonthName_(month);
-      const replacements = {
-        // Новые метки.
-        '{{PLOT}}': plot,
-        '{{YEAR}}': String(year),
-        '{{MONTH}}': monthNumber,
-        '{{MONTH_NAME}}': monthName,
-        '{{FIO}}': name,
-        '{{NAME_PART}}': name ? ', ' + name : '',
-
-        // Совместимость со старыми шаблонами темы и текста письма.
-        '{{P}}': plot,
-        '{{Pi}}': plot,
-        '{{Y}}': String(year),
-        '{{M}}': monthName,
-        '{{MN}}': monthName,
-        '{{MM}}': monthNumber,
-        '{{F}}': name,
-      };
-      const subject = replaceMailMarkers_(subjectTemplate, replacements);
-      const body = replaceMailMarkers_(bodyTemplate, replacements);
-
-      MailApp.sendEmail({
-        to: email,
-        subject: subject,
-        body: body,
-        attachments: [pdf.getBlob().setName(fileName)],
-        name: 'ДНП Комфорт',
-      });
-      sent++;
-      appendJournalRow_('EMAIL', year, month, plot, email, 'SENT', '');
-      ss.toast('Отправлено ' + sent + ' из ' + selected + ': участок ' + plot, 'ДНП', 4);
-      Utilities.sleep(100);
-    } catch (error) {
-      failed++;
-      const text = error.message || String(error);
-      errors.push('Участок ' + plot + ': ' + text);
-      appendJournalRow_('EMAIL', year, month, plot, email, 'ERROR', text);
-    }
-  });
-
-  if (!selected) throw new Error('Не выбрано ни одной строки. Установите галку в столбце «Отправить».');
-  const message = 'Выбрано: ' + selected + '. Отправлено: ' + sent + '. Ошибок: ' + failed + '. Пропущено: ' + skipped + '.' +
-    (errors.length ? ' Первая ошибка: ' + errors[0] : '');
-  ss.toast(message, 'ДНП', 10);
-  return { ok: failed === 0, selected, sent, failed, skipped, message };
+  year=Number(year);month=Number(month);if(!Number.isInteger(year)||year<2000||year>2100)throw new Error('Некорректный год.');if(!Number.isInteger(month)||month<1||month>12)throw new Error('Некорректный месяц.');
+  const ss=SpreadsheetApp.getActive();let sheet=ss.getSheetByName(DNP_SERVICE_SHEETS.emails);if(!sheet){ensureServiceSheets_();sheet=ss.getSheetByName(DNP_SERVICE_SHEETS.emails);}ensureEmailSheetHeaders_(sheet);
+  const root=getDnpPdfFolder_(),yearFolder=findChildFolderByNames_(root,[String(year)]);if(!yearFolder)throw new Error('Папка года не найдена.');const monthFolderName=String(month).padStart(2,'0')+' '+getRussianMonthName_(month),monthFolder=findChildFolderByNames_(yearFolder,[monthFolderName]);if(!monthFolder)throw new Error('Папка месяца не найдена.');
+  const count=Math.max(sheet.getLastRow()-1,0);if(!count)throw new Error('На листе «Почты» нет получателей.');const rows=sheet.getRange(2,1,count,4).getValues();const subjectTemplate=getMailSetting_('emailSubject')||'Квитанция ДНП Комфорт: участок {{PLOT}}, {{MONTH_NAME}} {{YEAR}}';const bodyTemplate=getMailSetting_('emailBody')||'Здравствуйте{{NAME_PART}}!\n\nНаправляем квитанцию по участку № {{PLOT}} за {{MONTH_NAME}} {{YEAR}} года.\n\nС уважением, ДНП «Комфорт».';
+  let selected=0,sent=0,failed=0,skipped=0;const errors=[];
+  rows.forEach(row=>{const plot=String(row[0]==null?'':row[0]).trim(),email=String(row[1]==null?'':row[1]).trim(),name=String(row[2]==null?'':row[2]).trim();if(!isSendFlagEnabled_(row[3]))return;selected++;if(!plot||!email){skipped++;appendJournalRow_('EMAIL',year,month,plot,email,'SKIP','Не заполнен участок или Email');return;}const fileName='Квитанция_участок_'+sanitizePdfFileName_(plot)+'_'+year+'_'+String(month).padStart(2,'0')+'.pdf';const files=monthFolder.getFilesByName(fileName);if(!files.hasNext()){failed++;const text='Не найден PDF: '+fileName;errors.push('Участок '+plot+': '+text);appendJournalRow_('EMAIL',year,month,plot,email,'ERROR',text);return;}try{const pdf=files.next(),monthNumber=String(month).padStart(2,'0'),monthName=getRussianMonthName_(month),replacements={'{{PLOT}}':plot,'{{YEAR}}':String(year),'{{MONTH}}':monthNumber,'{{MONTH_NAME}}':monthName,'{{FIO}}':name,'{{NAME_PART}}':name?', '+name:'','{{P}}':plot,'{{Pi}}':plot,'{{Y}}':String(year),'{{M}}':monthName,'{{MN}}':monthName,'{{MM}}':monthNumber,'{{F}}':name};const subject=replaceMailMarkers_(subjectTemplate,replacements),body=replaceMailMarkers_(bodyTemplate,replacements);MailApp.sendEmail({to:email,subject,body,attachments:[pdf.getBlob().setName(fileName)],name:'ДНП Комфорт'});sent++;appendJournalRow_('EMAIL',year,month,plot,email,'SENT','');Utilities.sleep(100);}catch(error){failed++;const text=error.message||String(error);errors.push('Участок '+plot+': '+text);appendJournalRow_('EMAIL',year,month,plot,email,'ERROR',text);}});
+  if(!selected)throw new Error('Не выбрано ни одной строки.');const message='Выбрано: '+selected+'. Отправлено: '+sent+'. Ошибок: '+failed+'. Пропущено: '+skipped+'.'+(errors.length?' Первая ошибка: '+errors[0]:'');ss.toast(message,'ДНП',10);return{ok:failed===0,selected,sent,failed,skipped,message};
 }
 
-function isSendFlagEnabled_(value) {
-  if (value === true || value === 1) return true;
-  const text = String(value == null ? '' : value).trim().toLowerCase();
-  return ['да', 'yes', 'true', '1', 'отправить', 'x', '+'].includes(text);
-}
+function isSendFlagEnabled_(value){if(value===true||value===1)return true;return['да','yes','true','1','отправить','x','+'].includes(String(value==null?'':value).trim().toLowerCase());}
+function getMailSetting_(key){const settings=SpreadsheetApp.getActive().getSheetByName(DNP_SERVICE_SHEETS.settings);if(!settings||settings.getLastRow()<1)return'';const wanted=normalizeSettingKey_(key),rows=settings.getRange(1,1,settings.getLastRow(),Math.max(2,settings.getLastColumn())).getDisplayValues();for(let i=0;i<rows.length;i++)if(normalizeSettingKey_(rows[i][0])===wanted)return String(rows[i][1]||'').trim();return'';}
+function replaceMailMarkers_(text,replacements){let result=String(text==null?'':text);Object.keys(replacements).forEach(marker=>{result=result.split(marker).join(replacements[marker]);});return result;}
 
-function getMailSetting_(key) {
-  const settings = SpreadsheetApp.getActive().getSheetByName(DNP_SERVICE_SHEETS.settings);
-  if (!settings || settings.getLastRow() < 1) return '';
-  const wanted = normalizeSettingKey_(key);
-  const rows = settings.getRange(1, 1, settings.getLastRow(), Math.max(2, settings.getLastColumn())).getDisplayValues();
-  for (let i = 0; i < rows.length; i++) {
-    if (normalizeSettingKey_(rows[i][0]) === wanted) return String(rows[i][1] || '').trim();
-  }
-  return '';
-}
-
-function replaceMailMarkers_(text, replacements) {
-  let result = String(text == null ? '' : text);
-  Object.keys(replacements).forEach(marker => {
-    result = result.split(marker).join(replacements[marker]);
-  });
-  return result;
-}
-
-
-// ============================================================
-// MODULE: Journal.gs
-// ============================================================
-
-/** Журнал операций. */
-
-function clearJournal() {
-  const ui = SpreadsheetApp.getUi();
-  const answer = ui.alert('Очистить журнал?', 'Будут удалены все строки, кроме заголовка.', ui.ButtonSet.YES_NO);
-  if (answer !== ui.Button.YES) return;
-
-  const sheet = SpreadsheetApp.getActive().getSheetByName(DNP_SERVICE_SHEETS.journal);
-  if (!sheet) { ui.alert('Лист журнала не найден.'); return; }
-  if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getMaxColumns()).clearContent();
-  }
-  SpreadsheetApp.getActive().toast('Журнал очищен', 'ДНП', 5);
-}
-
-function appendJournalRow_(operation, year, month, plot, email, status, errorText) {
-  let sheet = SpreadsheetApp.getActive().getSheetByName(DNP_SERVICE_SHEETS.journal);
-  if (!sheet) { ensureServiceSheets_(); sheet = SpreadsheetApp.getActive().getSheetByName(DNP_SERVICE_SHEETS.journal); }
-  sheet.appendRow([new Date(), operation || '', year || '', month || '', plot || '', email || '', status || '', errorText || '']);
-}
+function clearJournal(){const ui=SpreadsheetApp.getUi();if(ui.alert('Очистить журнал?','Будут удалены все строки, кроме заголовка.',ui.ButtonSet.YES_NO)!==ui.Button.YES)return;const sheet=SpreadsheetApp.getActive().getSheetByName(DNP_SERVICE_SHEETS.journal);if(!sheet){ui.alert('Лист журнала не найден.');return;}if(sheet.getLastRow()>1)sheet.getRange(2,1,sheet.getLastRow()-1,sheet.getMaxColumns()).clearContent();}
+function appendJournalRow_(operation,year,month,plot,email,status,errorText){let sheet=SpreadsheetApp.getActive().getSheetByName(DNP_SERVICE_SHEETS.journal);if(!sheet){ensureServiceSheets_();sheet=SpreadsheetApp.getActive().getSheetByName(DNP_SERVICE_SHEETS.journal);}sheet.appendRow([new Date(),operation||'',year||'',month||'',plot||'',email||'',status||'',errorText||'']);}
