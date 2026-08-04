@@ -1,0 +1,45 @@
+name: Patch PDF finish dialog
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update single-file Apps Script
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('google-apps-script-single/Code.gs')
+          text = path.read_text(encoding='utf-8')
+
+          text = text.replace("const DNP_VERSION = '3.7.9';", "const DNP_VERSION = '3.8.0';")
+          text = text.replace("const DNP_VERSION = '3.7.8';", "const DNP_VERSION = '3.8.0';")
+
+          old = "function submitForm(){const b=document.getElementById('submit'),s=document.getElementById('status');b.disabled=true;s.textContent='Формирование запущено…';google.script.run.withSuccessHandler(r=>{s.textContent=r&&r.message?r.message:'Готово';b.disabled=false}).withFailureHandler(e=>{s.textContent='Ошибка: '+e.message;b.disabled=false}).startPdfGenerationFromDialog(Number(document.getElementById('year').value),Number(document.getElementById('month').value))}"
+          new = "function submitForm(){const b=document.getElementById('submit'),s=document.getElementById('status');b.disabled=true;s.textContent='Формирование запущено…';google.script.run.withSuccessHandler(r=>{document.body.innerHTML='<h2>Формирование завершено</h2><div class=\"info\">Создано PDF: <b>'+Number(r.created||0)+'</b><br>Ошибок: <b>'+Number(r.failed||0)+'</b></div><div class=\"buttons\"><button class=\"primary\" onclick=\"google.script.host.close()\">Закрыть</button></div>'}).withFailureHandler(e=>{s.textContent='Ошибка: '+e.message;b.disabled=false}).startPdfGenerationFromDialog(Number(document.getElementById('year').value),Number(document.getElementById('month').value))}"
+
+          if old not in text:
+              raise SystemExit('PDF submit handler not found')
+
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+
+      - name: Remove one-time workflow
+        run: rm -f .github/workflows/patch-pdf-finish-dialog.yml
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add google-apps-script-single/Code.gs .github/workflows/patch-pdf-finish-dialog.yml
+          git commit -m "Show PDF generation completion dialog [skip ci]"
+          git push
