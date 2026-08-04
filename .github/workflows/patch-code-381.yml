@@ -1,0 +1,92 @@
+name: Patch Code 3.8.1
+
+on:
+  push:
+    paths:
+      - .github/workflows/patch-code-381.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch only Code.gs
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('google-apps-script-single/Code.gs')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace("const DNP_VERSION = '3.8.0';", "const DNP_VERSION = '3.8.1';")
+
+          old = """  rows.push(['', '', '', '', 'ИТОГО К ОПЛАТЕ', formatReceiptMoney_(total) + ' руб.']);
+
+  const table = body.insertTable(index, rows);
+  paragraph.editAsText().setText('');
+  table.getRow(0).editAsText().setBold(true);
+  applyPaymentTableColumnWidths_(table);
+
+  const totalRow = table.getRow(table.getNumRows() - 1);
+  for (let mergeIndex = 0; mergeIndex < 4; mergeIndex++) totalRow.getCell(1).merge();
+
+  const labelCell = totalRow.getCell(0);
+  const amountCell = totalRow.getCell(1);
+  labelCell.setText('ИТОГО К ОПЛАТЕ');
+  amountCell.setText(formatReceiptMoney_(total) + ' руб.');
+  labelCell.setWidth(
+    DNP_PAYMENT_TABLE_WIDTHS.name +
+    DNP_PAYMENT_TABLE_WIDTHS.current +
+    DNP_PAYMENT_TABLE_WIDTHS.previous +
+    DNP_PAYMENT_TABLE_WIDTHS.usage +
+    DNP_PAYMENT_TABLE_WIDTHS.rate
+  );
+  amountCell.setWidth(DNP_PAYMENT_TABLE_WIDTHS.amount);
+  labelCell.editAsText().setBold(true);
+  amountCell.editAsText().setBold(true);
+  labelCell.getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
+"""
+
+          new = """  rows.push(['ИТОГО К ОПЛАТЕ', '', '', '', '', formatReceiptMoney_(total) + ' руб.']);
+
+  const table = body.insertTable(index, rows);
+  paragraph.editAsText().setText('');
+  table.getRow(0).editAsText().setBold(true);
+  applyPaymentTableColumnWidths_(table);
+
+  // Объединяем первые пять ячеек справа налево. Так Google Docs
+  // сохраняет исходные ширины всех шести столбцов таблицы.
+  const totalRow = table.getRow(table.getNumRows() - 1);
+  for (let cellIndex = 4; cellIndex >= 1; cellIndex--) {
+    totalRow.getCell(cellIndex).merge();
+  }
+
+  const labelCell = totalRow.getCell(0);
+  const amountCell = totalRow.getCell(1);
+  labelCell.setText('ИТОГО К ОПЛАТЕ');
+  amountCell.setText(formatReceiptMoney_(total) + ' руб.');
+  labelCell.editAsText().setBold(true);
+  amountCell.editAsText().setBold(true);
+  labelCell.getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
+"""
+
+          if old not in text:
+              raise SystemExit('Expected table block was not found')
+
+          path.write_text(text.replace(old, new), encoding='utf-8')
+
+          for workflow in [
+              '.github/workflows/patch-code-381.yml',
+              '.github/workflows/fix-payment-total-width.yml',
+              '.github/workflows/patch-pdf-finish-dialog.yml',
+          ]:
+              Path(workflow).unlink(missing_ok=True)
+      - name: Commit result
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add -A
+          git commit -m "Fix receipt table layout in Code.gs" || exit 0
+          git push
