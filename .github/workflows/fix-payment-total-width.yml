@@ -1,0 +1,65 @@
+name: Fix payment total row width
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch single Apps Script
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('google-apps-script-single/Code.gs')
+          text = path.read_text(encoding='utf-8')
+
+          old = """  const labelCell = totalRow.getCell(0);
+  const amountCell = totalRow.getCell(1);
+  labelCell.setText('ИТОГО К ОПЛАТЕ');
+  amountCell.setText(formatReceiptMoney_(total) + ' руб.');
+  labelCell.editAsText().setBold(true);
+  amountCell.editAsText().setBold(true);
+  labelCell.getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
+"""
+          new = """  const labelCell = totalRow.getCell(0);
+  const amountCell = totalRow.getCell(1);
+
+  // После merge Google Docs сохраняет ширину первой ячейки, а не сумму
+  // объединённых колонок. Поэтому ширины итоговой строки задаём повторно.
+  const mergedWidth =
+    DNP_PAYMENT_TABLE_WIDTHS.name +
+    DNP_PAYMENT_TABLE_WIDTHS.current +
+    DNP_PAYMENT_TABLE_WIDTHS.previous +
+    DNP_PAYMENT_TABLE_WIDTHS.usage +
+    DNP_PAYMENT_TABLE_WIDTHS.rate;
+  labelCell.setWidth(mergedWidth);
+  amountCell.setWidth(DNP_PAYMENT_TABLE_WIDTHS.amount);
+
+  labelCell.setText('ИТОГО К ОПЛАТЕ');
+  amountCell.setText(formatReceiptMoney_(total) + ' руб.');
+  labelCell.editAsText().setBold(true);
+  amountCell.editAsText().setBold(true);
+  labelCell.getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
+"""
+
+          if old not in text:
+              raise SystemExit('Expected total-row block was not found')
+
+          text = text.replace(old, new, 1)
+          text = text.replace("const DNP_VERSION = '3.7.8';", "const DNP_VERSION = '3.7.9';", 1)
+          path.write_text(text, encoding='utf-8')
+
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add google-apps-script-single/Code.gs
+          git commit -m "Fix merged payment total row width [skip ci]"
+          git push
