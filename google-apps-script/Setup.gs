@@ -59,9 +59,11 @@ function ensureServiceSheets_() {
   }
   if (!ss.getSheetByName(DNP_SERVICE_SHEETS.emails)) {
     const sheet = ss.insertSheet(DNP_SERVICE_SHEETS.emails);
-    sheet.getRange('A1:D1').setValues([['Участок', 'Email', 'Статус', 'Комментарий']]);
+    sheet.getRange('A1:D1').setValues([['Участок', 'Email', 'ФИО', 'Отправить']]);
     sheet.setFrozenRows(1);
     syncEmailSheetPlots_();
+  } else {
+    ensureEmailSheetHeaders_(ss.getSheetByName(DNP_SERVICE_SHEETS.emails));
   }
   if (!ss.getSheetByName(DNP_SERVICE_SHEETS.journal)) {
     const sheet = ss.insertSheet(DNP_SERVICE_SHEETS.journal);
