@@ -12,7 +12,7 @@
 
 /** Ядро приложения DNP Receipts. */
 
-const DNP_VERSION = '3.7.6';
+const DNP_VERSION = '3.7.7';
 const DNP_ADMIN_PASSWORD = '123456';
 
 // Настройки формирования PDF.
@@ -941,11 +941,12 @@ function insertPaymentTable_(body, paymentRows, total) {
   table.getRow(0).editAsText().setBold(true);
   applyPaymentTableColumnWidths_(table);
 
-  // Объединяем первые пять ячеек последней строки справа налево.
-  // В итоге остаются две ячейки: большая с надписью и отдельная с суммой.
+  // Объединяем ячейки 1–5. TableCell.merge() объединяет текущую
+  // ячейку с предыдущей, поэтому четыре раза объединяем вторую ячейку
+  // с первой. Последний, шестой столбец остаётся отдельным для суммы.
   const totalRow = table.getRow(table.getNumRows() - 1);
-  for (let cellIndex = 4; cellIndex >= 1; cellIndex--) {
-    totalRow.getCell(cellIndex).merge();
+  for (let mergeIndex = 0; mergeIndex < 4; mergeIndex++) {
+    totalRow.getCell(1).merge();
   }
 
   const labelCell = totalRow.getCell(0);
@@ -1472,13 +1473,25 @@ function sendReceiptsForMonth(year, month) {
 
     try {
       const pdf = files.next();
+      const monthNumber = String(month).padStart(2, '0');
+      const monthName = getRussianMonthName_(month);
       const replacements = {
+        // Новые метки.
         '{{PLOT}}': plot,
         '{{YEAR}}': String(year),
-        '{{MONTH}}': String(month).padStart(2, '0'),
-        '{{MONTH_NAME}}': getRussianMonthName_(month),
+        '{{MONTH}}': monthNumber,
+        '{{MONTH_NAME}}': monthName,
         '{{FIO}}': name,
         '{{NAME_PART}}': name ? ', ' + name : '',
+
+        // Совместимость со старыми шаблонами темы и текста письма.
+        '{{P}}': plot,
+        '{{Pi}}': plot,
+        '{{Y}}': String(year),
+        '{{M}}': monthName,
+        '{{MN}}': monthName,
+        '{{MM}}': monthNumber,
+        '{{F}}': name,
       };
       const subject = replaceMailMarkers_(subjectTemplate, replacements);
       const body = replaceMailMarkers_(bodyTemplate, replacements);
