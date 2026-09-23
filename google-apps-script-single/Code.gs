@@ -3,7 +3,7 @@
  * Для работы достаточно вставить только этот Code.gs.
  */
 
-const DNP_VERSION = '3.8.8';
+const DNP_VERSION = '3.8.9';
 const DNP_ADMIN_PASSWORD = '123456';
 const DNP_PDF_LOG_ENABLED = false;
 const DNP_PDF_SLEEP_MS = 20;
@@ -41,14 +41,16 @@ function countPlotsForYear(year) {
 }
 
 function isOperationPasswordRequired_() {
-  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd');
-  return today > DNP_PASSWORD_CHECK_AFTER;
+//  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd');
+//  return today > DNP_PASSWORD_CHECK_AFTER;
+  return false;
 }
 
 function requireOperationPassword_(password) {
-  if (isOperationPasswordRequired_() && String(password == null ? '' : password).trim() !== DNP_VERSION) {
-    throw new Error('Неверный пароль. Укажите текущую версию программы.');
-  }
+//  if (isOperationPasswordRequired_() && String(password == null ? '' : password).trim() !== DNP_VERSION) {
+//    throw new Error('Неверный пароль. Укажите текущую версию программы.');
+//  }
+  return;
 }
 
 function startPdfGenerationFromDialog(year, month, password) {
@@ -119,6 +121,9 @@ function onOpen() {
     .addSubMenu(ui.createMenu('Настройка')
       .addItem('Первичная настройка', 'showInitialSetupDialog')
       .addSeparator()
+      .addItem('Проставить формулы кВтч', 'fillKwhFormulas')
+      .addItem('Проставить формулы суммы', 'fillSumFormulasFromTariffs')
+      .addItem('Оформить лист', 'formatYearSheetUX')
       .addItem('Добавить строчку услуги', 'showAddServiceRowDialog')
       .addItem('Создать шаблон под текущий формат', 'createReceiptTemplateForCurrentFormat')
       .addItem('Открыть шаблон квитанции', 'openReceiptTemplate')
@@ -1052,3 +1057,197 @@ function replaceMailMarkers_(text,replacements){let result=String(text==null?'':
 
 function clearJournal(){const ui=SpreadsheetApp.getUi();if(ui.alert('Очистить журнал?','Будут удалены все строки, кроме заголовка.',ui.ButtonSet.YES_NO)!==ui.Button.YES)return;const sheet=SpreadsheetApp.getActive().getSheetByName(DNP_SERVICE_SHEETS.journal);if(!sheet){ui.alert('Лист журнала не найден.');return;}if(sheet.getLastRow()>1)sheet.getRange(2,1,sheet.getLastRow()-1,sheet.getMaxColumns()).clearContent();}
 function appendJournalRow_(operation,year,month,plot,email,status,errorText){let sheet=SpreadsheetApp.getActive().getSheetByName(DNP_SERVICE_SHEETS.journal);if(!sheet){ensureServiceSheets_();sheet=SpreadsheetApp.getActive().getSheetByName(DNP_SERVICE_SHEETS.journal);}sheet.appendRow([new Date(),operation||'',year||'',month||'',plot||'',email||'',status||'',errorText||'']);}
+
+
+
+function fillKwhFormulas() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getActiveSheet();
+
+  const year = Number(sheet.getName());
+
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    SpreadsheetApp.getUi().alert(
+      'Откройте лист года, например 2026.'
+    );
+    return;
+  }
+
+  const LABEL_COL = 2; // B
+  const JAN_COL = 3;   // C
+  const DEC_COL = 14;  // N
+
+  const lastRow = sheet.getLastRow();
+
+  const labels = sheet
+    .getRange(1, LABEL_COL, lastRow, 1)
+    .getDisplayValues()
+    .flat()
+    .map(value =>
+      String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '')
+    );
+
+  const previousYear = year - 1;
+  const previousSheet = ss.getSheetByName(String(previousYear));
+
+  let blocksFound = 0;
+  let januaryCreated = 0;
+  let januarySkipped = 0;
+
+  for (let i = 0; i < labels.length; i++) {
+
+    // Ищем строку кВтч
+    if (labels[i] !== 'квтч') {
+      continue;
+    }
+
+    const kwhRow = i + 1;
+
+    // Структура блока:
+    //
+    // Т1
+    // Т2
+    // Т3
+    // кВтч
+
+    const t1Row = kwhRow - 3;
+    const t2Row = kwhRow - 2;
+    const t3Row = kwhRow - 1;
+
+    // Проверяем, что действительно нашли нужный блок
+    if (
+      t1Row < 1 ||
+      labels[t1Row - 1] !== 'т1' ||
+      labels[t2Row - 1] !== 'т2' ||
+      labels[t3Row - 1] !== 'т3'
+    ) {
+      continue;
+    }
+
+    blocksFound++;
+
+    // ==========================================
+    // ФЕВРАЛЬ - ДЕКАБРЬ
+    // ==========================================
+
+    for (let col = JAN_COL + 1; col <= DEC_COL; col++) {
+
+      const currentT1 = sheet.getRange(t1Row, col).getA1Notation();
+      const currentT2 = sheet.getRange(t2Row, col).getA1Notation();
+      const currentT3 = sheet.getRange(t3Row, col).getA1Notation();
+
+      const previousT1 = sheet.getRange(t1Row, col - 1).getA1Notation();
+      const previousT2 = sheet.getRange(t2Row, col - 1).getA1Notation();
+      const previousT3 = sheet.getRange(t3Row, col - 1).getA1Notation();
+
+      const formula =
+        '=(' +
+        currentT1 + '+' +
+        currentT2 + '+' +
+        currentT3 +
+        ')-(' +
+        previousT1 + '+' +
+        previousT2 + '+' +
+        previousT3 +
+        ')';
+
+      sheet
+        .getRange(kwhRow, col)
+        .setFormula(formula);
+    }
+
+    // ==========================================
+    // ЯНВАРЬ
+    // ==========================================
+
+    if (previousSheet) {
+
+      const currentT1 =
+        sheet.getRange(t1Row, JAN_COL).getA1Notation();
+
+      const currentT2 =
+        sheet.getRange(t2Row, JAN_COL).getA1Notation();
+
+      const currentT3 =
+        sheet.getRange(t3Row, JAN_COL).getA1Notation();
+
+
+      const previousT1 =
+        "'" + previousYear + "'!" +
+        previousSheet
+          .getRange(t1Row, DEC_COL)
+          .getA1Notation();
+
+      const previousT2 =
+        "'" + previousYear + "'!" +
+        previousSheet
+          .getRange(t2Row, DEC_COL)
+          .getA1Notation();
+
+      const previousT3 =
+        "'" + previousYear + "'!" +
+        previousSheet
+          .getRange(t3Row, DEC_COL)
+          .getA1Notation();
+
+
+      const januaryFormula =
+        '=(' +
+        currentT1 + '+' +
+        currentT2 + '+' +
+        currentT3 +
+        ')-(' +
+        previousT1 + '+' +
+        previousT2 + '+' +
+        previousT3 +
+        ')';
+
+      sheet
+        .getRange(kwhRow, JAN_COL)
+        .setFormula(januaryFormula);
+
+      januaryCreated++;
+
+    } else {
+
+      // Если предыдущего года нет —
+      // январь оставляем пустым.
+      sheet
+        .getRange(kwhRow, JAN_COL)
+        .clearContent();
+
+      januarySkipped++;
+    }
+  }
+
+  SpreadsheetApp.flush();
+
+  let message =
+    'Обработано участков: ' + blocksFound;
+
+  if (januaryCreated > 0) {
+    message +=
+      '\nЯнварь связан с декабрём ' +
+      previousYear +
+      ': ' +
+      januaryCreated;
+  }
+
+  if (januarySkipped > 0) {
+    message +=
+      '\nЛист ' +
+      previousYear +
+      ' не найден — январь пропущен.';
+  }
+
+  ss.toast(
+    message,
+    'Формулы кВтч установлены',
+    8
+  );
+}
+
+
