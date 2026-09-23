@@ -3,10 +3,11 @@
  * Для работы достаточно вставить только этот Code.gs.
  */
 
-const DNP_VERSION = '3.8.1';
+const DNP_VERSION = '3.8.8';
 const DNP_ADMIN_PASSWORD = '123456';
 const DNP_PDF_LOG_ENABLED = false;
 const DNP_PDF_SLEEP_MS = 20;
+const DNP_PASSWORD_CHECK_AFTER = '20261001';
 
 const DNP_SERVICE_SHEETS = {
   settings: 'Настройки',
@@ -39,8 +40,19 @@ function countPlotsForYear(year) {
   return getReceiptBlocks_(sheet).length;
 }
 
-function startPdfGenerationFromDialog(year, month) {
-  const result = generatePdfsForMonthWithLog(Number(year), Number(month));
+function isOperationPasswordRequired_() {
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd');
+  return today > DNP_PASSWORD_CHECK_AFTER;
+}
+
+function requireOperationPassword_(password) {
+  if (isOperationPasswordRequired_() && String(password == null ? '' : password).trim() !== DNP_VERSION) {
+    throw new Error('Неверный пароль. Укажите текущую версию программы.');
+  }
+}
+
+function startPdfGenerationFromDialog(year, month, password) {
+  const result = generatePdfsForMonthWithLog(Number(year), Number(month), password);
   return {
     ok: result && result.ok !== false,
     created: Number(result && result.created || 0),
@@ -140,11 +152,14 @@ function showPdfDialog() {
   const options = years.map(year =>
     '<option value="' + year + '"' + (year === defaultYear ? ' selected' : '') + '>' + year + '</option>'
   ).join('');
+  const passwordField = isOperationPasswordRequired_()
+    ? '<label for="password">Пароль</label><input id="password" type="password" autocomplete="off">'
+    : '';
 
   const html = HtmlService.createHtmlOutput(`
 <!doctype html><html><head><base target="_top"><style>
 body{font:14px Arial,sans-serif;padding:18px;color:#202124}h2{margin:0 0 16px;font-size:18px}
-label{display:block;margin:12px 0 6px;font-weight:600}select{width:100%;box-sizing:border-box;padding:9px;border:1px solid #dadce0;border-radius:6px}
+label{display:block;margin:12px 0 6px;font-weight:600}select,input{width:100%;box-sizing:border-box;padding:9px;border:1px solid #dadce0;border-radius:6px}
 .info{background:#f8f9fa;padding:10px;border-radius:6px;margin-top:14px;line-height:1.5}.buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
 button{padding:9px 14px;border:0;border-radius:6px;cursor:pointer}.primary{background:#1a73e8;color:#fff}.secondary{background:#f1f3f4}#status{margin-top:12px;min-height:18px;color:#5f6368}
 </style></head><body><h2>Формирование PDF</h2>
@@ -153,12 +168,13 @@ button{padding:9px 14px;border:0;border-radius:6px;cursor:pointer}.primary{backg
 <option value="1">Январь</option><option value="2">Февраль</option><option value="3">Март</option><option value="4">Апрель</option>
 <option value="5">Май</option><option value="6">Июнь</option><option value="7">Июль</option><option value="8">Август</option>
 <option value="9">Сентябрь</option><option value="10">Октябрь</option><option value="11">Ноябрь</option><option value="12">Декабрь</option></select>
+${passwordField}
 <div class="info">Найдено участков: <b id="count">…</b></div><div id="status"></div>
 <div class="buttons"><button class="secondary" onclick="google.script.host.close()">Отмена</button><button class="primary" id="submit" onclick="submitForm()">Сформировать</button></div>
 <script>
 document.getElementById('year').value='${defaultYear}';document.getElementById('month').value='${currentMonth}';
 function refreshCount(){const year=document.getElementById('year').value;google.script.run.withSuccessHandler(c=>document.getElementById('count').textContent=c).withFailureHandler(e=>document.getElementById('status').textContent=e.message).countPlotsForYear(year)}
-function submitForm(){const b=document.getElementById('submit'),s=document.getElementById('status');b.disabled=true;s.textContent='Формирование запущено…';google.script.run.withSuccessHandler(r=>{document.body.innerHTML='<h2>Формирование завершено</h2><div class="info">Создано PDF: <b>'+Number(r.created||0)+'</b><br>Ошибок: <b>'+Number(r.failed||0)+'</b></div><div class="buttons"><button class="primary" onclick="google.script.host.close()">Закрыть</button></div>'}).withFailureHandler(e=>{s.textContent='Ошибка: '+e.message;b.disabled=false}).startPdfGenerationFromDialog(Number(document.getElementById('year').value),Number(document.getElementById('month').value))}
+function submitForm(){const b=document.getElementById('submit'),s=document.getElementById('status'),p=document.getElementById('password');b.disabled=true;s.textContent='Формирование запущено…';google.script.run.withSuccessHandler(r=>{document.body.innerHTML='<h2>Формирование завершено</h2><div class="info">Создано PDF: <b>'+Number(r.created||0)+'</b><br>Ошибок: <b>'+Number(r.failed||0)+'</b></div><div class="buttons"><button class="primary" onclick="google.script.host.close()">Закрыть</button></div>'}).withFailureHandler(e=>{s.textContent='Ошибка: '+e.message;b.disabled=false}).startPdfGenerationFromDialog(Number(document.getElementById('year').value),Number(document.getElementById('month').value),p?p.value:'')}
 refreshCount();
 </script></body></html>`).setWidth(440).setHeight(410);
   SpreadsheetApp.getUi().showModalDialog(html, 'ДНП');
@@ -208,7 +224,7 @@ label{display:block;margin:12px 0 6px;font-weight:600}input,select{width:100%;bo
 .primary{background:#1a73e8;color:#fff}.secondary{background:#f1f3f4}#status{margin-top:12px;color:#5f6368;min-height:18px}
 </style></head><body><h2>Первичная настройка</h2>
 <label for="password">Пароль администратора</label><input id="password" type="password" autocomplete="off" autofocus>
-<label for="mode">Папка квитанций</label><select id="mode"><option value="reuse">Использовать существующую или создать</option><option value="recreate">Создать новую папку</option></select>
+<label for="mode">Папка квитанций</label><select id="mode"><option value="reuse">Использовать существующую</option><option value="recreate">Создать новую папку</option></select>
 <div id="status"></div><div class="buttons"><button class="secondary" onclick="google.script.host.close()">Отмена</button><button class="primary" onclick="run()">Продолжить</button></div>
 <script>
 function run(){const s=document.getElementById('status');s.textContent='Выполняется настройка…';google.script.run.withSuccessHandler(r=>{s.textContent=r.message;setTimeout(()=>google.script.host.close(),1200)}).withFailureHandler(e=>s.textContent='Ошибка: '+e.message).runInitialSetup(document.getElementById('password').value,document.getElementById('mode').value)}
@@ -581,7 +597,36 @@ function applyPaymentTableColumnWidths_(table) {
   }
 }
 
-function generatePdfsForMonth(year, month) {
+function insertPaymentTotalRow_(body, index, total) {
+  const labelWidth =
+    DNP_PAYMENT_TABLE_WIDTHS.name +
+    DNP_PAYMENT_TABLE_WIDTHS.current +
+    DNP_PAYMENT_TABLE_WIDTHS.previous +
+    DNP_PAYMENT_TABLE_WIDTHS.usage +
+    DNP_PAYMENT_TABLE_WIDTHS.rate;
+
+  // Итог вынесен в отдельную таблицу из двух ячеек. DocumentApp.merge()
+  // при экспорте в PDF сохраняет объединённой ячейке ширину только первого
+  // столбца и ломает сетку всей таблицы. Отдельная строка даёт тот же вид:
+  // слева объединённая ширина столбцов 1–5, справа ровно шестой столбец.
+  const totalTable = body.insertTable(index, [[
+    'ИТОГО К ОПЛАТЕ',
+    formatReceiptMoney_(total) + ' руб.',
+  ]]);
+  const totalRow = totalTable.getRow(0);
+  const labelCell = totalRow.getCell(0);
+  const amountCell = totalRow.getCell(1);
+
+  labelCell.setWidth(labelWidth);
+  amountCell.setWidth(DNP_PAYMENT_TABLE_WIDTHS.amount);
+  labelCell.editAsText().setBold(true);
+  amountCell.editAsText().setBold(true);
+  labelCell.getChild(0).asParagraph()
+    .setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
+}
+
+function generatePdfsForMonth(year, month, password) {
+  requireOperationPassword_(password);
   year = Number(year);
   month = Number(month);
   if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new Error('Некорректный год.');
@@ -598,6 +643,7 @@ function generatePdfsForMonth(year, month) {
   const monthFolder = getOrCreatePdfChildFolder_(yearFolder, monthFolderName);
   const blocks = getReceiptBlocks_(sheet);
   const rates = getReceiptRates_();
+  const previousDecemberReadings = month === 1 ? getPreviousDecemberReadings_(year) : null;
   if (!blocks.length) throw new Error('Не найдены строки «Тариф» в столбце B.');
 
   let created = 0;
@@ -608,7 +654,7 @@ function generatePdfsForMonth(year, month) {
     let tempFile = null;
     ss.toast('Формируется ' + (index + 1) + ' из ' + blocks.length + ': участок ' + block.plot, 'ДНП', 5);
     try {
-      const receipt = buildReceiptData_(sheet, block, year, month, rates);
+      const receipt = buildReceiptData_(sheet, block, year, month, rates, previousDecemberReadings);
       const fileName = 'Квитанция_участок_' + sanitizePdfFileName_(block.plot) + '_' + year + '_' + String(month).padStart(2, '0') + '.pdf';
       trashFilesByName_(monthFolder, fileName);
       tempFile = templateFile.makeCopy('Временная квитанция ' + block.plot, monthFolder);
@@ -653,7 +699,29 @@ function getReceiptBlocks_(sheet) {
   }));
 }
 
-function buildReceiptData_(sheet, block, year, month, rates) {
+function getPreviousDecemberReadings_(year) {
+  const previousSheet = SpreadsheetApp.getActive().getSheetByName(String(Number(year) - 1));
+  if (!previousSheet) return {};
+
+  const decemberColumn = 14; // A, B, затем январь–декабрь в C:N.
+  const lastColumn = Math.max(previousSheet.getLastColumn(), decemberColumn);
+  const readingsByPlot = {};
+
+  getReceiptBlocks_(previousSheet).forEach(block => {
+    const rowCount = block.endRow - block.startRow + 1;
+    const values = previousSheet.getRange(block.startRow, 1, rowCount, lastColumn).getDisplayValues();
+    const byLabel = {};
+    values.forEach(row => {
+      const label = normalizeReceiptLabel_(row[1]);
+      if (label) byLabel[label] = parseReceiptNumber_(row[decemberColumn - 1]);
+    });
+    readingsByPlot[String(block.plot).trim()] = byLabel;
+  });
+
+  return readingsByPlot;
+}
+
+function buildReceiptData_(sheet, block, year, month, rates, previousDecemberReadings) {
   const monthColumn = month + 2;
   const previousMonthColumn = monthColumn - 1;
   const rowCount = block.endRow - block.startRow + 1;
@@ -661,6 +729,9 @@ function buildReceiptData_(sheet, block, year, month, rates) {
   const values = sheet.getRange(block.startRow, 1, rowCount, lastColumn).getDisplayValues();
   const byLabel = {};
   values.forEach(row => { const label = normalizeReceiptLabel_(row[1]); if (label) byLabel[label] = row; });
+  const previousByLabel = month === 1
+    ? ((previousDecemberReadings || {})[String(block.plot).trim()] || {})
+    : null;
 
   const paymentRows = [];
   let calculatedTotal = 0;
@@ -668,9 +739,14 @@ function buildReceiptData_(sheet, block, year, month, rates) {
     const row = byLabel[label];
     if (!row) return;
     const current = parseReceiptNumber_(row[monthColumn - 1]);
-    const previous = month > 1 ? parseReceiptNumber_(row[previousMonthColumn - 1]) : null;
+    const previous = month > 1
+      ? parseReceiptNumber_(row[previousMonthColumn - 1])
+      : (previousByLabel[label] === undefined ? null : previousByLabel[label]);
     const usage = current !== null && previous !== null ? current - previous : null;
     const rate = rates['T' + (index + 1)];
+    if (usage !== null && rate === null) {
+      throw new Error('На листе «Настройки» не заполнен тариф t' + (index + 1) + 'Rate.');
+    }
     const amount = usage !== null && rate !== null ? usage * rate : null;
     if (amount !== null) calculatedTotal += amount;
     paymentRows.push(['Электроэнергия Т' + (index + 1), formatReceiptValue_(current), formatReceiptValue_(previous), formatReceiptValue_(usage), formatReceiptMoney_(rate), formatReceiptMoney_(amount)]);
@@ -679,8 +755,16 @@ function buildReceiptData_(sheet, block, year, month, rates) {
   const waterRow = findReceiptRow_(byLabel, [/^водоотвед/, /^вода$/]);
   if (waterRow) {
     const current = parseReceiptNumber_(waterRow[monthColumn - 1]);
-    const previous = month > 1 ? parseReceiptNumber_(waterRow[previousMonthColumn - 1]) : null;
+    const previousWater = month === 1
+      ? findReceiptRow_(previousByLabel, [/^водоотвед/, /^вода$/])
+      : null;
+    const previous = month > 1
+      ? parseReceiptNumber_(waterRow[previousMonthColumn - 1])
+      : (previousWater === undefined ? null : previousWater);
     const usage = current !== null && previous !== null ? current - previous : null;
+    if (usage !== null && rates.WATER === null) {
+      throw new Error('На листе «Настройки» не заполнен тариф waterRate.');
+    }
     const amount = usage !== null && rates.WATER !== null ? usage * rates.WATER : null;
     if (amount !== null) calculatedTotal += amount;
     paymentRows.push(['Водоотведение', formatReceiptValue_(current), formatReceiptValue_(previous), formatReceiptValue_(usage), formatReceiptMoney_(rates.WATER), formatReceiptMoney_(amount)]);
@@ -697,9 +781,9 @@ function buildReceiptData_(sheet, block, year, month, rates) {
     paymentRows.push([rawLabel, '—', '—', '—', '—', formatReceiptMoney_(amount)]);
   });
 
-  const totalRow = findReceiptRow_(byLabel, [/^сумма/, /^итого/]);
-  const storedTotal = totalRow ? parseReceiptNumber_(totalRow[monthColumn - 1]) : null;
-  const total = storedTotal !== null ? storedTotal : calculatedTotal;
+  // Итог PDF всегда складывается из рассчитанных сумм строк таблицы:
+  // объём × тариф для ресурсов плюс фиксированные платежи и взносы.
+  const total = calculatedTotal;
   return { plot: block.plot, year, month, monthName: getRussianMonthName_(month), total, paymentRows };
 }
 
@@ -730,38 +814,12 @@ function insertPaymentTable_(body, paymentRows, total) {
     'Сумма к оплате',
   ]].concat(paymentRows);
 
-  rows.push([
-    'ИТОГО К ОПЛАТЕ',
-    '',
-    '',
-    '',
-    '',
-    formatReceiptMoney_(total) + ' руб.',
-  ]);
-
   const table = body.insertTable(index, rows);
+  insertPaymentTotalRow_(body, index + 1, total);
   paragraph.editAsText().setText('');
 
   table.getRow(0).editAsText().setBold(true);
   applyPaymentTableColumnWidths_(table);
-
-  const totalRow = table.getRow(table.getNumRows() - 1);
-
-  // Объединяем первые пять ячеек справа налево.
-  // Шестой столбец с суммой остаётся отдельным.
-  for (let cellIndex = 4; cellIndex >= 1; cellIndex--) {
-    totalRow.getCell(cellIndex).merge();
-  }
-
-  const labelCell = totalRow.getCell(0);
-  const amountCell = totalRow.getCell(1);
-
-  labelCell.setText('ИТОГО К ОПЛАТЕ');
-  amountCell.setText(formatReceiptMoney_(total) + ' руб.');
-  labelCell.editAsText().setBold(true);
-  amountCell.editAsText().setBold(true);
-  labelCell.getChild(0).asParagraph()
-    .setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
 }
 
 function getReceiptTemplateFile_() {
@@ -832,10 +890,10 @@ function getReceiptRates_() {
   settings.getRange(2, 1, settings.getLastRow() - 1, 2).getDisplayValues().forEach(row => {
     const key = normalizeSettingKey_(row[0]);
     const value = parseReceiptNumber_(row[1]);
-    if (/^(tariff|тариф)t?1$/.test(key) || key === 'тариф1') result.T1 = value;
-    if (/^(tariff|тариф)t?2$/.test(key) || key === 'тариф2') result.T2 = value;
-    if (/^(tariff|тариф)t?3$/.test(key) || key === 'тариф3') result.T3 = value;
-    if (/водоотвед|sewage|wastewater|watertariff|tariffwater/.test(key)) result.WATER = value;
+    if (['t1rate', 'rate1', 'tarifft1', 'tariff1', 'тарифт1', 'тариф1'].includes(key)) result.T1 = value;
+    if (['t2rate', 'rate2', 'tarifft2', 'tariff2', 'тарифт2', 'тариф2'].includes(key)) result.T2 = value;
+    if (['t3rate', 'rate3', 'tarifft3', 'tariff3', 'тарифт3', 'тариф3'].includes(key)) result.T3 = value;
+    if (['waterrate', 'ratewater', 'watertariff', 'tariffwater', 'водоотведение', 'тарифводы'].includes(key) || /sewage|wastewater/.test(key)) result.WATER = value;
   });
   return result;
 }
@@ -876,11 +934,11 @@ function trashFilesByName_(folder, fileName) { const files = folder.getFilesByNa
 
 const DNP_PDF_LOG_SHEET = 'Журнал PDF';
 
-function generatePdfsForMonthWithLog(year, month) {
+function generatePdfsForMonthWithLog(year, month, password) {
   const runId = Utilities.getUuid().slice(0, 8);
   const startedAt = new Date();
   try {
-    const result = generatePdfsForMonth(year, month);
+    const result = generatePdfsForMonth(year, month, password);
     if (DNP_PDF_LOG_ENABLED) appendPdfLog_(runId, 'ИТОГ', year, month, '', result && result.ok !== false ? 'OK' : 'ERROR', (result.message || '') + '; длительность=' + Math.round((new Date().getTime() - startedAt.getTime()) / 1000) + ' сек.');
     return result;
   } catch (error) {
@@ -968,15 +1026,17 @@ function sendReceipts() {
   const years=getYearSheetNames_(); if(!years.length)throw new Error('Не найдены листы с названиями годов.');
   const now=new Date(),currentYear=String(now.getFullYear()),currentMonth=now.getMonth()+1,defaultYear=years.includes(currentYear)?currentYear:years[years.length-1];
   const yearOptions=years.map(year=>'<option value="'+year+'"'+(year===defaultYear?' selected':'')+'>'+year+'</option>').join('');
+  const passwordField=isOperationPasswordRequired_()?'<label for="password">Пароль</label><input id="password" type="password" autocomplete="off">':'';
   const html=HtmlService.createHtmlOutput(`
 <!doctype html><html><head><base target="_top"><style>
-body{font:14px Arial,sans-serif;padding:18px;color:#202124}h2{margin:0 0 16px;font-size:18px}label{display:block;margin:12px 0 6px;font-weight:600}select{width:100%;box-sizing:border-box;padding:9px;border:1px solid #dadce0;border-radius:6px}.note{background:#f8f9fa;padding:10px;border-radius:6px;margin-top:14px;line-height:1.4}.buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}button{padding:9px 14px;border:0;border-radius:6px;cursor:pointer}.primary{background:#1a73e8;color:#fff}.secondary{background:#f1f3f4}#status{margin-top:12px;min-height:36px;color:#5f6368}
-</style></head><body><h2>Отправка квитанций</h2><label>Год</label><select id="year">${yearOptions}</select><label>Месяц</label><select id="month"><option value="1">Январь</option><option value="2">Февраль</option><option value="3">Март</option><option value="4">Апрель</option><option value="5">Май</option><option value="6">Июнь</option><option value="7">Июль</option><option value="8">Август</option><option value="9">Сентябрь</option><option value="10">Октябрь</option><option value="11">Ноябрь</option><option value="12">Декабрь</option></select><div class="note">Будут отправлены только отмеченные строки листа «Почты».</div><div id="status"></div><div class="buttons"><button class="secondary" onclick="google.script.host.close()">Отмена</button><button class="primary" id="send" onclick="run()">Отправить</button></div>
-<script>document.getElementById('month').value='${currentMonth}';function run(){const b=document.getElementById('send'),s=document.getElementById('status');b.disabled=true;s.textContent='Идёт последовательная отправка…';google.script.run.withSuccessHandler(r=>{document.body.innerHTML='<h2>Отправка завершена</h2><div class="note">Отправлено писем: <b>'+Number(r.sent||0)+'</b><br>Ошибок: <b>'+Number(r.failed||0)+'</b><br>Пропущено: <b>'+Number(r.skipped||0)+'</b></div><div class="buttons"><button class="primary" onclick="google.script.host.close()">Закрыть</button></div>'}).withFailureHandler(e=>{s.textContent='Ошибка: '+e.message;b.disabled=false}).sendReceiptsForMonth(Number(document.getElementById('year').value),Number(document.getElementById('month').value))}</script></body></html>`).setWidth(460).setHeight(420);
+body{font:14px Arial,sans-serif;padding:18px;color:#202124}h2{margin:0 0 16px;font-size:18px}label{display:block;margin:12px 0 6px;font-weight:600}select,input{width:100%;box-sizing:border-box;padding:9px;border:1px solid #dadce0;border-radius:6px}.note{background:#f8f9fa;padding:10px;border-radius:6px;margin-top:14px;line-height:1.4}.buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}button{padding:9px 14px;border:0;border-radius:6px;cursor:pointer}.primary{background:#1a73e8;color:#fff}.secondary{background:#f1f3f4}#status{margin-top:12px;min-height:36px;color:#5f6368}
+</style></head><body><h2>Отправка квитанций</h2><label>Год</label><select id="year">${yearOptions}</select><label>Месяц</label><select id="month"><option value="1">Январь</option><option value="2">Февраль</option><option value="3">Март</option><option value="4">Апрель</option><option value="5">Май</option><option value="6">Июнь</option><option value="7">Июль</option><option value="8">Август</option><option value="9">Сентябрь</option><option value="10">Октябрь</option><option value="11">Ноябрь</option><option value="12">Декабрь</option></select>${passwordField}<div class="note">Будут отправлены только отмеченные строки листа «Почты».</div><div id="status"></div><div class="buttons"><button class="secondary" onclick="google.script.host.close()">Отмена</button><button class="primary" id="send" onclick="run()">Отправить</button></div>
+<script>document.getElementById('month').value='${currentMonth}';function run(){const b=document.getElementById('send'),s=document.getElementById('status'),p=document.getElementById('password');b.disabled=true;s.textContent='Идёт последовательная отправка…';google.script.run.withSuccessHandler(r=>{document.body.innerHTML='<h2>Отправка завершена</h2><div class="note">Отправлено писем: <b>'+Number(r.sent||0)+'</b><br>Ошибок: <b>'+Number(r.failed||0)+'</b><br>Пропущено: <b>'+Number(r.skipped||0)+'</b></div><div class="buttons"><button class="primary" onclick="google.script.host.close()">Закрыть</button></div>'}).withFailureHandler(e=>{s.textContent='Ошибка: '+e.message;b.disabled=false}).sendReceiptsForMonth(Number(document.getElementById('year').value),Number(document.getElementById('month').value),p?p.value:'')}</script></body></html>`).setWidth(460).setHeight(450);
   SpreadsheetApp.getUi().showModalDialog(html,'ДНП');
 }
 
-function sendReceiptsForMonth(year, month) {
+function sendReceiptsForMonth(year, month, password) {
+  requireOperationPassword_(password);
   year=Number(year);month=Number(month);if(!Number.isInteger(year)||year<2000||year>2100)throw new Error('Некорректный год.');if(!Number.isInteger(month)||month<1||month>12)throw new Error('Некорректный месяц.');
   const ss=SpreadsheetApp.getActive();let sheet=ss.getSheetByName(DNP_SERVICE_SHEETS.emails);if(!sheet){ensureServiceSheets_();sheet=ss.getSheetByName(DNP_SERVICE_SHEETS.emails);}ensureEmailSheetHeaders_(sheet);
   const root=getDnpPdfFolder_(),yearFolder=findChildFolderByNames_(root,[String(year)]);if(!yearFolder)throw new Error('Папка года не найдена.');const monthFolderName=String(month).padStart(2,'0')+' '+getRussianMonthName_(month),monthFolder=findChildFolderByNames_(yearFolder,[monthFolderName]);if(!monthFolder)throw new Error('Папка месяца не найдена.');
