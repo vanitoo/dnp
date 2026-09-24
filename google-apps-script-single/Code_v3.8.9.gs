@@ -3,7 +3,7 @@
  * Для работы достаточно вставить только этот Code.gs.
  */
 
-const DNP_VERSION = '3.9.0';
+const DNP_VERSION = '3.8.9';
 const DNP_ADMIN_PASSWORD = '123456';
 const DNP_PDF_LOG_ENABLED = false;
 const DNP_PDF_SLEEP_MS = 20;
@@ -63,168 +63,10 @@ function startPdfGenerationFromDialog(year, month, password) {
   };
 }
 
-const DNP_DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
-const DNP_DRIVE_DOC_MIME = 'application/vnd.google-apps.document';
-const DNP_DRIVE_PDF_MIME = 'application/pdf';
-const DNP_ROOT_APP_PROPERTY = 'dnpReceiptsRoot';
-const DNP_TEMPLATE_APP_PROPERTY = 'dnpReceiptsTemplate';
-
-function dnpDriveId_(item) {
-  if (!item) return '';
-  if (typeof item === 'string') return item;
-  return String(item.id || '');
-}
-
-function dnpDriveFolderUrl_(item) {
-  const id = dnpDriveId_(item);
-  return id ? 'https://drive.google.com/drive/folders/' + encodeURIComponent(id) : '';
-}
-
-function dnpDriveDocUrl_(item) {
-  const id = dnpDriveId_(item);
-  return id ? 'https://docs.google.com/document/d/' + encodeURIComponent(id) + '/edit' : '';
-}
-
-function dnpDriveEscapeQuery_(value) {
-  return String(value == null ? '' : value)
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'");
-}
-
-function dnpDriveGet_(fileId) {
-  const id = dnpDriveId_(fileId);
-  if (!id) throw new Error('Не указан ID файла Google Drive.');
-  return Drive.Files.get(id, {
-    fields: 'id,name,mimeType,parents,trashed,appProperties'
-  });
-}
-
-function dnpDriveList_(query) {
-  const files = [];
-  let pageToken = null;
-  do {
-    const options = {
-      q: query,
-      pageSize: 1000,
-      fields: 'nextPageToken,files(id,name,mimeType,parents,trashed,appProperties)'
-    };
-    if (pageToken) options.pageToken = pageToken;
-    const response = Drive.Files.list(options);
-    if (response.files && response.files.length) files.push(...response.files);
-    pageToken = response.nextPageToken || null;
-  } while (pageToken);
-  return files;
-}
-
-function dnpDriveChildren_(parent, mimeType) {
-  const parentId = dnpDriveId_(parent);
-  if (!parentId) return [];
-  let query = "'" + dnpDriveEscapeQuery_(parentId) + "' in parents and trashed = false";
-  if (mimeType) query += " and mimeType = '" + dnpDriveEscapeQuery_(mimeType) + "'";
-  return dnpDriveList_(query);
-}
-
-function dnpDriveFindByName_(parent, name, mimeType) {
-  const parentId = dnpDriveId_(parent);
-  let query = "'" + dnpDriveEscapeQuery_(parentId) + "' in parents" +
-    " and name = '" + dnpDriveEscapeQuery_(name) + "'" +
-    ' and trashed = false';
-  if (mimeType) query += " and mimeType = '" + dnpDriveEscapeQuery_(mimeType) + "'";
-  return dnpDriveList_(query);
-}
-
-function dnpDriveCreateFolder_(name, parent, appProperties) {
-  const parentId = dnpDriveId_(parent);
-  const resource = {
-    name: String(name),
-    mimeType: DNP_DRIVE_FOLDER_MIME,
-    appProperties: appProperties || {}
-  };
-  if (parentId) resource.parents = [parentId];
-  const created = Drive.Files.create(resource);
-  return {
-    id: created.id,
-    name: String(name),
-    mimeType: DNP_DRIVE_FOLDER_MIME,
-    parents: parentId ? [parentId] : [],
-    appProperties: resource.appProperties
-  };
-}
-
-function dnpDriveCreateGoogleDoc_(name, parent, appProperties) {
-  const parentId = dnpDriveId_(parent);
-  const resource = {
-    name: String(name),
-    mimeType: DNP_DRIVE_DOC_MIME,
-    appProperties: appProperties || {}
-  };
-  if (parentId) resource.parents = [parentId];
-  const created = Drive.Files.create(resource);
-  return {
-    id: created.id,
-    name: String(name),
-    mimeType: DNP_DRIVE_DOC_MIME,
-    parents: parentId ? [parentId] : [],
-    appProperties: resource.appProperties
-  };
-}
-
-function dnpDriveCopy_(source, name, parent) {
-  const sourceId = dnpDriveId_(source);
-  const parentId = dnpDriveId_(parent);
-  return Drive.Files.copy({
-    name: String(name),
-    parents: [parentId]
-  }, sourceId, {
-    fields: 'id,name,mimeType,parents,trashed,appProperties'
-  });
-}
-
-function dnpDriveTrash_(file) {
-  const id = dnpDriveId_(file);
-  if (!id) return;
-  Drive.Files.update({ trashed: true }, id, null, { fields: 'id,trashed' });
-}
-
-function dnpDriveCreateBlobFile_(parent, name, blob, mimeType) {
-  const parentId = dnpDriveId_(parent);
-  const data = blob.copyBlob().setName(String(name));
-  if (mimeType) data.setContentType(mimeType);
-  return Drive.Files.create({
-    name: String(name),
-    mimeType: mimeType || data.getContentType(),
-    parents: [parentId]
-  }, data, {
-    fields: 'id,name,mimeType,parents'
-  });
-}
-
-function dnpDriveFetchBlob_(url, fileName) {
-  const response = UrlFetchApp.fetch(url, {
-    method: 'get',
-    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
-    muteHttpExceptions: true
-  });
-  const code = response.getResponseCode();
-  if (code < 200 || code >= 300) {
-    throw new Error('Google Drive вернул HTTP ' + code + ': ' + response.getContentText().slice(0, 500));
-  }
-  const blob = response.getBlob();
-  if (fileName) blob.setName(fileName);
-  return blob;
-}
-
-function dnpDriveExportPdf_(doc, fileName) {
-  const id = dnpDriveId_(doc);
-  const url = 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(id) +
-    '/export?mimeType=' + encodeURIComponent(DNP_DRIVE_PDF_MIME);
-  return dnpDriveFetchBlob_(url, fileName).setContentType(DNP_DRIVE_PDF_MIME);
-}
-
-function dnpDriveDownloadBlob_(file, fileName) {
-  const id = dnpDriveId_(file);
-  const url = 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(id) + '?alt=media';
-  return dnpDriveFetchBlob_(url, fileName);
+function getSpreadsheetParentFolder_() {
+  const file = DriveApp.getFileById(SpreadsheetApp.getActive().getId());
+  const parents = file.getParents();
+  return parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
 }
 
 function getAvailablePropertyStores_() {
@@ -353,14 +195,15 @@ function openCurrentMonthFolder() {
   const monthName = String(month).padStart(2, '0') + ' ' + getRussianMonthName_(month);
   const monthFolder = findChildFolderByNames_(yearFolder, [monthName]);
   if (!monthFolder) throw new Error('Папка «' + monthName + '» не найдена.');
-  showDriveLinkDialog_('Папка месяца', monthFolder.name, dnpDriveFolderUrl_(monthFolder));
+  showDriveLinkDialog_('Папка месяца', monthFolder.getName(), monthFolder.getUrl());
 }
 
 function findChildFolderByNames_(parent, names) {
   const normalized = names.map(name => String(name).trim().toLowerCase());
-  const folders = dnpDriveChildren_(parent, DNP_DRIVE_FOLDER_MIME);
-  for (let i = 0; i < folders.length; i++) {
-    if (normalized.includes(String(folders[i].name || '').trim().toLowerCase())) return folders[i];
+  const folders = parent.getFolders();
+  while (folders.hasNext()) {
+    const folder = folders.next();
+    if (normalized.includes(folder.getName().trim().toLowerCase())) return folder;
   }
   return null;
 }
@@ -399,34 +242,26 @@ function runInitialSetup(password, mode) {
   if (!['reuse', 'recreate'].includes(mode)) throw new Error('Неизвестный режим настройки.');
 
   const ss = SpreadsheetApp.getActive();
-  const pdfFolder = getOrCreateSetupFolder_('Квитанции ДНП Комфорт', mode === 'recreate');
+  const parent = getSpreadsheetParentFolder_();
+  const pdfFolder = getOrCreateSetupFolder_(parent, 'Квитанции ДНП Комфорт', mode === 'recreate');
 
-  saveProperty_('PDF_FOLDER_ID', pdfFolder.id);
+  saveProperty_('PDF_FOLDER_ID', pdfFolder.getId());
   saveProperty_('APP_VERSION', DNP_VERSION);
   ensureServiceSheets_();
   applySevenRowBandingToYearSheets_();
   hideServiceSheets();
 
   ss.toast('Первичная настройка завершена', 'ДНП', 7);
-  return { ok: true, message: 'Готово. Папка квитанций: ' + pdfFolder.name + '.' };
+  return { ok: true, message: 'Готово. Папка квитанций: ' + pdfFolder.getName() + '.' };
 }
 
-function getOrCreateSetupFolder_(name, forceCreate) {
+function getOrCreateSetupFolder_(parent, name, forceCreate) {
   if (!forceCreate) {
-    try {
-      return getDnpPdfFolder_();
-    } catch (error) {
-      // Для drive.file нельзя просматривать весь Диск. Если ранее созданная
-      // приложением папка не найдена по сохранённому ID/метке, создаём новую.
-    }
+    const found = parent.getFoldersByName(name);
+    if (found.hasNext()) return found.next();
   }
-
-  const suffix = forceCreate
-    ? ' ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH-mm-ss')
-    : '';
-  const appProperties = {};
-  appProperties[DNP_ROOT_APP_PROPERTY] = '1';
-  return dnpDriveCreateFolder_(name + suffix, '', appProperties);
+  const suffix = forceCreate ? ' ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH-mm-ss') : '';
+  return parent.createFolder(name + suffix);
 }
 
 function ensureServiceSheets_() {
@@ -696,19 +531,15 @@ function createReceiptTemplateForCurrentFormat() {
 
   const answer = ui.alert(
     'Создать шаблон под текущий формат?',
-    'Найдены строки:\n\n• ' + services.join('\n• ') + '\n\nБудет создан новый Google Документ внутри папки ДНП.',
+    'Найдены строки:\n\n• ' + services.join('\n• ') + '\n\nБудет создан новый Google Документ.',
     ui.ButtonSet.YES_NO
   );
   if (answer !== ui.Button.YES) return;
 
-  const root = getDnpPdfFolder_();
+  const parent = getSpreadsheetParentFolder_();
   const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH-mm');
   const name = 'Шаблон квитанции ДНП Комфорт ' + timestamp;
-  const appProperties = {};
-  appProperties[DNP_TEMPLATE_APP_PROPERTY] = '1';
-  const file = dnpDriveCreateGoogleDoc_(name, root, appProperties);
-
-  const doc = DocumentApp.openById(file.id);
+  const doc = DocumentApp.create(name);
   const body = doc.getBody();
   body.clear();
   body.appendParagraph('ДНП «Дачный поселок «КОМФОРТ»').setAlignment(DocumentApp.HorizontalAlignment.CENTER).editAsText().setBold(true);
@@ -719,8 +550,10 @@ function createReceiptTemplateForCurrentFormat() {
   body.appendParagraph('{{PAYMENT_TABLE}}');
   doc.saveAndClose();
 
-  saveTemplateId_(file.id);
-  showDriveLinkDialog_('Шаблон создан', name, dnpDriveDocUrl_(file));
+  const file = DriveApp.getFileById(doc.getId());
+  file.moveTo(parent);
+  saveTemplateId_(file.getId());
+  showDriveLinkDialog_('Шаблон создан', file.getName(), file.getUrl());
 }
 
 function getCurrentFormatServiceLabels_(sheet) {
@@ -749,7 +582,7 @@ function getCurrentFormatServiceLabels_(sheet) {
 
 function openReceiptTemplate() {
   const file = getReceiptTemplateFile_();
-  showDriveLinkDialog_('Шаблон квитанции', file.name, dnpDriveDocUrl_(file));
+  showDriveLinkDialog_('Шаблон квитанции', file.getName(), file.getUrl());
 }
 
 function applyPaymentTableColumnWidths_(table) {
@@ -823,37 +656,25 @@ function generatePdfsForMonth(year, month, password) {
   const errors = [];
 
   blocks.forEach((block, index) => {
-    let tempFileId = '';
+    let tempFile = null;
     ss.toast('Формируется ' + (index + 1) + ' из ' + blocks.length + ': участок ' + block.plot, 'ДНП', 5);
     try {
       const receipt = buildReceiptData_(sheet, block, year, month, rates, previousDecemberReadings);
       const fileName = 'Квитанция_участок_' + sanitizePdfFileName_(block.plot) + '_' + year + '_' + String(month).padStart(2, '0') + '.pdf';
       trashFilesByName_(monthFolder, fileName);
-
-      const tempFile = dnpDriveCopy_(
-        templateFile,
-        'Временная квитанция ' + block.plot,
-        monthFolder
-      );
-      tempFileId = tempFile.id;
-
-      const doc = DocumentApp.openById(tempFileId);
+      tempFile = templateFile.makeCopy('Временная квитанция ' + block.plot, monthFolder);
+      const doc = DocumentApp.openById(tempFile.getId());
       fillReceiptTemplate_(doc, receipt);
       doc.saveAndClose();
-
-      const pdfBlob = dnpDriveExportPdf_(tempFileId, fileName);
-      dnpDriveCreateBlobFile_(monthFolder, fileName, pdfBlob, DNP_DRIVE_PDF_MIME);
-
-      dnpDriveTrash_(tempFileId);
-      tempFileId = '';
+      monthFolder.createFile(tempFile.getAs(MimeType.PDF).setName(fileName));
+      tempFile.setTrashed(true);
+      tempFile = null;
       created++;
       if (DNP_PDF_SLEEP_MS > 0) Utilities.sleep(DNP_PDF_SLEEP_MS);
     } catch (error) {
       failed++;
       errors.push('Участок ' + block.plot + ': ' + (error.message || error));
-      if (tempFileId) {
-        try { dnpDriveTrash_(tempFileId); } catch (cleanupError) {}
-      }
+      if (tempFile) { try { tempFile.setTrashed(true); } catch (cleanupError) {} }
     }
   });
 
@@ -861,14 +682,7 @@ function generatePdfsForMonth(year, month, password) {
     ? 'Создано PDF: ' + created + '. Ошибок: ' + failed + '. Первая ошибка: ' + errors[0]
     : 'Создано PDF: ' + created + '. Папка: ' + year + '/' + monthFolderName + '.';
   ss.toast(message, 'ДНП', 10);
-  return {
-    ok: failed === 0,
-    created,
-    failed,
-    folderId: monthFolder.id,
-    folderUrl: dnpDriveFolderUrl_(monthFolder),
-    message
-  };
+  return { ok: failed === 0, created, failed, folderId: monthFolder.getId(), folderUrl: monthFolder.getUrl(), message };
 }
 
 function getReceiptBlocks_(sheet) {
@@ -1017,9 +831,8 @@ function getReceiptTemplateFile_() {
   const templateId = getStoredTemplateId_();
   if (!templateId) throw new Error('На листе «Настройки» не заполнен параметр templateDocId.');
   try {
-    const file = dnpDriveGet_(templateId);
-    if (file.trashed) throw new Error('Файл находится в корзине.');
-    if (file.mimeType !== DNP_DRIVE_DOC_MIME) throw new Error('Файл templateDocId не является Google Docs.');
+    const file = DriveApp.getFileById(templateId);
+    if (file.getMimeType() !== MimeType.GOOGLE_DOCS) throw new Error('Файл templateDocId не является Google Docs.');
     return file;
   } catch (error) {
     throw new Error('Не удалось открыть шаблон из строки templateDocId. ' + (error.message || error));
@@ -1119,18 +932,10 @@ function formatReceiptMoney_(value) {
   return value === null || value === undefined || !Number.isFinite(Number(value)) ? '' : Number(value).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function getOrCreatePdfChildFolder_(parent, name) {
-  const found = dnpDriveFindByName_(parent, name, DNP_DRIVE_FOLDER_MIME);
-  return found.length ? found[0] : dnpDriveCreateFolder_(name, parent, {});
-}
+function getOrCreatePdfChildFolder_(parent, name) { const folders = parent.getFoldersByName(name); return folders.hasNext() ? folders.next() : parent.createFolder(name); }
 function getRussianMonthName_(month) { return ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'][month - 1]; }
 function sanitizePdfFileName_(value) { return String(value).trim().replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_'); }
-function trashFilesByName_(folder, fileName) {
-  const files = dnpDriveFindByName_(folder, fileName, null);
-  files.forEach(file => {
-    try { dnpDriveTrash_(file); } catch (error) {}
-  });
-}
+function trashFilesByName_(folder, fileName) { const files = folder.getFilesByName(fileName); while (files.hasNext()) { try { files.next().setTrashed(true); } catch (error) {} } }
 
 const DNP_PDF_LOG_SHEET = 'Журнал PDF';
 
@@ -1174,49 +979,27 @@ function clearGeneratedPdfs() {
 function getDnpPdfFolder_() {
   const stores = getAvailablePropertyStores_();
   for (let i = 0; i < stores.length; i++) {
-    try {
-      const id = stores[i].getProperty('PDF_FOLDER_ID');
-      if (!id) continue;
-      const folder = dnpDriveGet_(id);
-      if (!folder.trashed && folder.mimeType === DNP_DRIVE_FOLDER_MIME) return folder;
-    } catch (error) {}
+    try { const id = stores[i].getProperty('PDF_FOLDER_ID'); if (id) return DriveApp.getFolderById(id); } catch (error) {}
   }
-
-  const query =
-    "appProperties has { key='" + dnpDriveEscapeQuery_(DNP_ROOT_APP_PROPERTY) + "' and value='1' }" +
-    " and mimeType = '" + DNP_DRIVE_FOLDER_MIME + "'" +
-    ' and trashed = false';
-  const folders = dnpDriveList_(query);
-  if (folders.length) {
-    saveProperty_('PDF_FOLDER_ID', folders[0].id);
-    return folders[0];
+  const parent = getSpreadsheetParentFolder_();
+  const folders = parent.getFolders();
+  while (folders.hasNext()) {
+    const folder = folders.next();
+    if (/^(Квитанции ДНП Комфорт|Квитанции|Receipts)/i.test(folder.getName())) { saveProperty_('PDF_FOLDER_ID', folder.getId()); return folder; }
   }
-
-  throw new Error('Папка квитанций, доступная этому приложению, не найдена. Выполните «ДНП → Настройка → Первичная настройка».');
+  throw new Error('Папка квитанций не найдена. Выполните первичную настройку.');
 }
 
 function trashDnpPdfFilesRecursively_(folder) {
-  let deleted = 0;
-  let failed = 0;
-  const items = dnpDriveChildren_(folder, null);
-
-  items.forEach(item => {
-    if (item.mimeType === DNP_DRIVE_FOLDER_MIME) {
-      const result = trashDnpPdfFilesRecursively_(item);
-      deleted += result.deleted;
-      failed += result.failed;
-      return;
-    }
-
-    if (item.mimeType !== DNP_DRIVE_PDF_MIME && !/\.pdf$/i.test(item.name || '')) return;
-    try {
-      dnpDriveTrash_(item);
-      deleted++;
-    } catch (error) {
-      failed++;
-    }
-  });
-
+  let deleted = 0, failed = 0;
+  const files = folder.getFiles();
+  while (files.hasNext()) {
+    const file = files.next();
+    if (file.getMimeType() !== MimeType.PDF && !/\.pdf$/i.test(file.getName())) continue;
+    try { file.setTrashed(true); deleted++; } catch (error) { failed++; }
+  }
+  const children = folder.getFolders();
+  while (children.hasNext()) { const result=trashDnpPdfFilesRecursively_(children.next()); deleted+=result.deleted; failed+=result.failed; }
   return { deleted, failed };
 }
 
@@ -1259,110 +1042,13 @@ body{font:14px Arial,sans-serif;padding:18px;color:#202124}h2{margin:0 0 16px;fo
 
 function sendReceiptsForMonth(year, month, password) {
   requireOperationPassword_(password);
-  year = Number(year);
-  month = Number(month);
-  if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new Error('Некорректный год.');
-  if (!Number.isInteger(month) || month < 1 || month > 12) throw new Error('Некорректный месяц.');
-
-  const ss = SpreadsheetApp.getActive();
-  let sheet = ss.getSheetByName(DNP_SERVICE_SHEETS.emails);
-  if (!sheet) {
-    ensureServiceSheets_();
-    sheet = ss.getSheetByName(DNP_SERVICE_SHEETS.emails);
-  }
-  ensureEmailSheetHeaders_(sheet);
-
-  const root = getDnpPdfFolder_();
-  const yearFolder = findChildFolderByNames_(root, [String(year)]);
-  if (!yearFolder) throw new Error('Папка года не найдена.');
-
-  const monthFolderName = String(month).padStart(2, '0') + ' ' + getRussianMonthName_(month);
-  const monthFolder = findChildFolderByNames_(yearFolder, [monthFolderName]);
-  if (!monthFolder) throw new Error('Папка месяца не найдена.');
-
-  const count = Math.max(sheet.getLastRow() - 1, 0);
-  if (!count) throw new Error('На листе «Почты» нет получателей.');
-
-  const rows = sheet.getRange(2, 1, count, 4).getValues();
-  const subjectTemplate = getMailSetting_('emailSubject') ||
-    'Квитанция ДНП Комфорт: участок {{PLOT}}, {{MONTH_NAME}} {{YEAR}}';
-  const bodyTemplate = getMailSetting_('emailBody') ||
-    'Здравствуйте{{NAME_PART}}!\n\nНаправляем квитанцию по участку № {{PLOT}} за {{MONTH_NAME}} {{YEAR}} года.\n\nС уважением, ДНП «Комфорт».';
-
-  let selected = 0;
-  let sent = 0;
-  let failed = 0;
-  let skipped = 0;
-  const errors = [];
-
-  rows.forEach(row => {
-    const plot = String(row[0] == null ? '' : row[0]).trim();
-    const email = String(row[1] == null ? '' : row[1]).trim();
-    const name = String(row[2] == null ? '' : row[2]).trim();
-    if (!isSendFlagEnabled_(row[3])) return;
-
-    selected++;
-    if (!plot || !email) {
-      skipped++;
-      appendJournalRow_('EMAIL', year, month, plot, email, 'SKIP', 'Не заполнен участок или Email');
-      return;
-    }
-
-    const fileName = 'Квитанция_участок_' + sanitizePdfFileName_(plot) + '_' + year + '_' + String(month).padStart(2, '0') + '.pdf';
-    const files = dnpDriveFindByName_(monthFolder, fileName, DNP_DRIVE_PDF_MIME);
-    if (!files.length) {
-      failed++;
-      const text = 'Не найден PDF: ' + fileName;
-      errors.push('Участок ' + plot + ': ' + text);
-      appendJournalRow_('EMAIL', year, month, plot, email, 'ERROR', text);
-      return;
-    }
-
-    try {
-      const monthNumber = String(month).padStart(2, '0');
-      const monthName = getRussianMonthName_(month);
-      const replacements = {
-        '{{PLOT}}': plot,
-        '{{YEAR}}': String(year),
-        '{{MONTH}}': monthNumber,
-        '{{MONTH_NAME}}': monthName,
-        '{{FIO}}': name,
-        '{{NAME_PART}}': name ? ', ' + name : '',
-        '{{P}}': plot,
-        '{{Pi}}': plot,
-        '{{Y}}': String(year),
-        '{{M}}': monthName,
-        '{{MN}}': monthName,
-        '{{MM}}': monthNumber,
-        '{{F}}': name
-      };
-      const subject = replaceMailMarkers_(subjectTemplate, replacements);
-      const body = replaceMailMarkers_(bodyTemplate, replacements);
-      const pdfBlob = dnpDriveDownloadBlob_(files[0], fileName);
-
-      MailApp.sendEmail({
-        to: email,
-        subject,
-        body,
-        attachments: [pdfBlob],
-        name: 'ДНП Комфорт'
-      });
-      sent++;
-      appendJournalRow_('EMAIL', year, month, plot, email, 'SENT', '');
-      Utilities.sleep(100);
-    } catch (error) {
-      failed++;
-      const text = error.message || String(error);
-      errors.push('Участок ' + plot + ': ' + text);
-      appendJournalRow_('EMAIL', year, month, plot, email, 'ERROR', text);
-    }
-  });
-
-  if (!selected) throw new Error('Не выбрано ни одной строки.');
-  const message = 'Выбрано: ' + selected + '. Отправлено: ' + sent + '. Ошибок: ' + failed + '. Пропущено: ' + skipped + '.' +
-    (errors.length ? ' Первая ошибка: ' + errors[0] : '');
-  ss.toast(message, 'ДНП', 10);
-  return { ok: failed === 0, selected, sent, failed, skipped, message };
+  year=Number(year);month=Number(month);if(!Number.isInteger(year)||year<2000||year>2100)throw new Error('Некорректный год.');if(!Number.isInteger(month)||month<1||month>12)throw new Error('Некорректный месяц.');
+  const ss=SpreadsheetApp.getActive();let sheet=ss.getSheetByName(DNP_SERVICE_SHEETS.emails);if(!sheet){ensureServiceSheets_();sheet=ss.getSheetByName(DNP_SERVICE_SHEETS.emails);}ensureEmailSheetHeaders_(sheet);
+  const root=getDnpPdfFolder_(),yearFolder=findChildFolderByNames_(root,[String(year)]);if(!yearFolder)throw new Error('Папка года не найдена.');const monthFolderName=String(month).padStart(2,'0')+' '+getRussianMonthName_(month),monthFolder=findChildFolderByNames_(yearFolder,[monthFolderName]);if(!monthFolder)throw new Error('Папка месяца не найдена.');
+  const count=Math.max(sheet.getLastRow()-1,0);if(!count)throw new Error('На листе «Почты» нет получателей.');const rows=sheet.getRange(2,1,count,4).getValues();const subjectTemplate=getMailSetting_('emailSubject')||'Квитанция ДНП Комфорт: участок {{PLOT}}, {{MONTH_NAME}} {{YEAR}}';const bodyTemplate=getMailSetting_('emailBody')||'Здравствуйте{{NAME_PART}}!\n\nНаправляем квитанцию по участку № {{PLOT}} за {{MONTH_NAME}} {{YEAR}} года.\n\nС уважением, ДНП «Комфорт».';
+  let selected=0,sent=0,failed=0,skipped=0;const errors=[];
+  rows.forEach(row=>{const plot=String(row[0]==null?'':row[0]).trim(),email=String(row[1]==null?'':row[1]).trim(),name=String(row[2]==null?'':row[2]).trim();if(!isSendFlagEnabled_(row[3]))return;selected++;if(!plot||!email){skipped++;appendJournalRow_('EMAIL',year,month,plot,email,'SKIP','Не заполнен участок или Email');return;}const fileName='Квитанция_участок_'+sanitizePdfFileName_(plot)+'_'+year+'_'+String(month).padStart(2,'0')+'.pdf';const files=monthFolder.getFilesByName(fileName);if(!files.hasNext()){failed++;const text='Не найден PDF: '+fileName;errors.push('Участок '+plot+': '+text);appendJournalRow_('EMAIL',year,month,plot,email,'ERROR',text);return;}try{const pdf=files.next(),monthNumber=String(month).padStart(2,'0'),monthName=getRussianMonthName_(month),replacements={'{{PLOT}}':plot,'{{YEAR}}':String(year),'{{MONTH}}':monthNumber,'{{MONTH_NAME}}':monthName,'{{FIO}}':name,'{{NAME_PART}}':name?', '+name:'','{{P}}':plot,'{{Pi}}':plot,'{{Y}}':String(year),'{{M}}':monthName,'{{MN}}':monthName,'{{MM}}':monthNumber,'{{F}}':name};const subject=replaceMailMarkers_(subjectTemplate,replacements),body=replaceMailMarkers_(bodyTemplate,replacements);MailApp.sendEmail({to:email,subject,body,attachments:[pdf.getBlob().setName(fileName)],name:'ДНП Комфорт'});sent++;appendJournalRow_('EMAIL',year,month,plot,email,'SENT','');Utilities.sleep(100);}catch(error){failed++;const text=error.message||String(error);errors.push('Участок '+plot+': '+text);appendJournalRow_('EMAIL',year,month,plot,email,'ERROR',text);}});
+  if(!selected)throw new Error('Не выбрано ни одной строки.');const message='Выбрано: '+selected+'. Отправлено: '+sent+'. Ошибок: '+failed+'. Пропущено: '+skipped+'.'+(errors.length?' Первая ошибка: '+errors[0]:'');ss.toast(message,'ДНП',10);return{ok:failed===0,selected,sent,failed,skipped,message};
 }
 
 function isSendFlagEnabled_(value){if(value===true||value===1)return true;return['да','yes','true','1','отправить','x','+'].includes(String(value==null?'':value).trim().toLowerCase());}

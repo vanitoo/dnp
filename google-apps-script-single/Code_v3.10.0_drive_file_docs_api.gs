@@ -3,7 +3,7 @@
  * Для работы достаточно вставить только этот Code.gs.
  */
 
-const DNP_VERSION = '3.9.0';
+const DNP_VERSION = '3.10.0';
 const DNP_ADMIN_PASSWORD = '123456';
 const DNP_PDF_LOG_ENABLED = false;
 const DNP_PDF_SLEEP_MS = 20;
@@ -681,6 +681,345 @@ const DNP_PAYMENT_TABLE_WIDTHS = {
   amount: 82,
 };
 
+
+/**
+ * Google Docs API helpers.
+ * Важно: здесь используется только Advanced Docs API. Он умеет работать
+ * с документами по scope drive.file, поэтому скрипту не нужен общий
+ * https://www.googleapis.com/auth/documents.
+ */
+function dnpDocsGet_(documentId) {
+  return Docs.Documents.get(String(documentId));
+}
+
+function dnpDocsBatchUpdate_(documentId, requests) {
+  if (!requests || !requests.length) return;
+  Docs.Documents.batchUpdate({ requests: requests }, String(documentId));
+}
+
+function dnpDocsWriteDefaultTemplate_(documentId) {
+  const title = 'ДНП «Дачный поселок «КОМФОРТ»';
+  const plotLine = 'Участок № {{PLOT}}    {{MONTH_NAME}} {{YEAR}} года';
+  const totalLine = 'Сумма оплаты: {{TOTAL}} руб.';
+  const marker = '{{PAYMENT_TABLE}}';
+  const text = title + '\n\n' + plotLine + '\n' + totalLine + '\n\n' + marker + '\n';
+
+  const titleStart = 1;
+  const titleEnd = titleStart + title.length;
+  const plotStart = titleEnd + 2;
+  const plotEnd = plotStart + plotLine.length;
+  const totalStart = plotEnd + 1;
+  const totalEnd = totalStart + totalLine.length;
+
+  dnpDocsBatchUpdate_(documentId, [
+    { insertText: { location: { index: 1 }, text: text } },
+    {
+      updateTextStyle: {
+        range: { startIndex: titleStart, endIndex: titleEnd },
+        textStyle: { bold: true },
+        fields: 'bold'
+      }
+    },
+    {
+      updateParagraphStyle: {
+        range: { startIndex: titleStart, endIndex: titleEnd + 1 },
+        paragraphStyle: { alignment: 'CENTER' },
+        fields: 'alignment'
+      }
+    },
+    {
+      updateParagraphStyle: {
+        range: { startIndex: plotStart, endIndex: plotEnd + 1 },
+        paragraphStyle: { alignment: 'CENTER' },
+        fields: 'alignment'
+      }
+    },
+    {
+      updateTextStyle: {
+        range: { startIndex: totalStart, endIndex: totalEnd },
+        textStyle: { bold: true },
+        fields: 'bold'
+      }
+    },
+    {
+      updateParagraphStyle: {
+        range: { startIndex: totalStart, endIndex: totalEnd + 1 },
+        paragraphStyle: { alignment: 'CENTER' },
+        fields: 'alignment'
+      }
+    }
+  ]);
+}
+
+function dnpDocsReplaceAllText_(documentId, replacements) {
+  const requests = Object.keys(replacements).map(marker => ({
+    replaceAllText: {
+      containsText: { text: marker, matchCase: true },
+      replaceText: String(replacements[marker] == null ? '' : replacements[marker])
+    }
+  }));
+  dnpDocsBatchUpdate_(documentId, requests);
+}
+
+function dnpDocsFindTextRange_(documentId, needle) {
+  const doc = dnpDocsGet_(documentId);
+  const content = doc && doc.body && doc.body.content ? doc.body.content : [];
+
+  for (let i = 0; i < content.length; i++) {
+    const structural = content[i];
+    const paragraph = structural.paragraph;
+    if (!paragraph || !paragraph.elements) continue;
+
+    let combined = '';
+    const pieces = [];
+    paragraph.elements.forEach(element => {
+      const run = element.textRun;
+      if (!run || run.content == null) return;
+      const value = String(run.content);
+      pieces.push({
+        textStart: combined.length,
+        textEnd: combined.length + value.length,
+        docStart: Number(element.startIndex),
+        docEnd: Number(element.endIndex),
+        text: value,
+      });
+      combined += value;
+    });
+
+    const foundAt = combined.indexOf(String(needle));
+    if (foundAt < 0) continue;
+
+    const foundEnd = foundAt + String(needle).length;
+    let startIndex = null;
+    let endIndex = null;
+
+    for (let p = 0; p < pieces.length; p++) {
+      const piece = pieces[p];
+      if (startIndex == null && foundAt >= piece.textStart && foundAt <= piece.textEnd) {
+        startIndex = piece.docStart + (foundAt - piece.textStart);
+      }
+      if (foundEnd >= piece.textStart && foundEnd <= piece.textEnd) {
+        endIndex = piece.docStart + (foundEnd - piece.textStart);
+        break;
+      }
+    }
+
+    if (startIndex != null && endIndex != null) {
+      return { startIndex: startIndex, endIndex: endIndex };
+    }
+  }
+
+  return null;
+}
+
+function dnpDocsFindNearestTable_(documentId, nearIndex) {
+  const doc = dnpDocsGet_(documentId);
+  const content = doc && doc.body && doc.body.content ? doc.body.content : [];
+  let best = null;
+  let bestDistance = Number.MAX_SAFE_INTEGER;
+
+  content.forEach(element => {
+    if (!element.table) return;
+    const startIndex = Number(element.startIndex || 0);
+    const distance = Math.abs(startIndex - Number(nearIndex || 0));
+    if (distance < bestDistance) {
+      best = element;
+      bestDistance = distance;
+    }
+  });
+
+  return best;
+}
+
+function dnpDocsCellInsertIndex_(cell) {
+  if (!cell || !cell.content || !cell.content.length) return null;
+  for (let i = 0; i < cell.content.length; i++) {
+    const structural = cell.content[i];
+    if (structural.paragraph && structural.startIndex != null) {
+      return Number(structural.startIndex);
+    }
+  }
+  return null;
+}
+
+function dnpDocsCellTextRange_(cell) {
+  if (!cell || !cell.content || !cell.content.length) return null;
+  let start = null;
+  let end = null;
+
+  cell.content.forEach(structural => {
+    if (!structural.paragraph) return;
+    if (start == null && structural.startIndex != null) start = Number(structural.startIndex);
+    if (structural.endIndex != null) end = Number(structural.endIndex);
+  });
+
+  if (start == null || end == null) return null;
+  // Последний символ абзаца — перевод строки; его не нужно делать жирным.
+  end = Math.max(start, end - 1);
+  return end > start ? { startIndex: start, endIndex: end } : null;
+}
+
+function dnpDocsInsertPaymentTable_(documentId, paymentRows, total) {
+  const marker = '{{PAYMENT_TABLE}}';
+  const markerRange = dnpDocsFindTextRange_(documentId, marker);
+  if (!markerRange) {
+    throw new Error('В Google Docs-шаблоне не найден маркер {{PAYMENT_TABLE}}.');
+  }
+
+  // Сначала удаляем маркер, оставляя сам абзац на месте.
+  dnpDocsBatchUpdate_(documentId, [{
+    deleteContentRange: {
+      range: {
+        startIndex: markerRange.startIndex,
+        endIndex: markerRange.endIndex
+      }
+    }
+  }]);
+
+  const rows = [[
+    'Наименование платежа',
+    'Текущее',
+    'Предыдущее',
+    'Объём',
+    'Тариф',
+    'Сумма к оплате',
+  ]].concat(paymentRows || []);
+
+  rows.push([
+    'ИТОГО К ОПЛАТЕ',
+    '', '', '', '',
+    formatReceiptMoney_(total) + ' руб.'
+  ]);
+
+  // Docs API вставляет перед таблицей перевод строки; сама таблица обычно
+  // начинается с markerRange.startIndex + 1. Точный индекс затем читаем обратно.
+  dnpDocsBatchUpdate_(documentId, [{
+    insertTable: {
+      rows: rows.length,
+      columns: 6,
+      location: { index: markerRange.startIndex }
+    }
+  }]);
+
+  let tableElement = dnpDocsFindNearestTable_(documentId, markerRange.startIndex + 1);
+  if (!tableElement || !tableElement.table || !tableElement.table.tableRows) {
+    throw new Error('Google Docs API не вернул созданную таблицу.');
+  }
+
+  // Заполняем ячейки с конца документа к началу. Так вставка текста не сдвигает
+  // индексы ещё не обработанных ячеек.
+  const insertRequests = [];
+  const tableRows = tableElement.table.tableRows;
+  for (let r = 0; r < rows.length && r < tableRows.length; r++) {
+    const cells = tableRows[r].tableCells || [];
+    for (let c = 0; c < rows[r].length && c < cells.length; c++) {
+      const value = String(rows[r][c] == null ? '' : rows[r][c]);
+      if (!value) continue;
+      const index = dnpDocsCellInsertIndex_(cells[c]);
+      if (index == null) continue;
+      insertRequests.push({
+        index: index,
+        request: { insertText: { location: { index: index }, text: value } }
+      });
+    }
+  }
+
+  insertRequests.sort((a, b) => b.index - a.index);
+  dnpDocsBatchUpdate_(documentId, insertRequests.map(item => item.request));
+
+  // Повторно читаем структуру уже после вставки текста и применяем оформление.
+  tableElement = dnpDocsFindNearestTable_(documentId, markerRange.startIndex + 1);
+  const table = tableElement.table;
+  const tableStartIndex = Number(tableElement.startIndex);
+  const lastRowIndex = Math.max(0, rows.length - 1);
+  const styleRequests = [];
+
+  const widths = [
+    DNP_PAYMENT_TABLE_WIDTHS.name,
+    DNP_PAYMENT_TABLE_WIDTHS.current,
+    DNP_PAYMENT_TABLE_WIDTHS.previous,
+    DNP_PAYMENT_TABLE_WIDTHS.usage,
+    DNP_PAYMENT_TABLE_WIDTHS.rate,
+    DNP_PAYMENT_TABLE_WIDTHS.amount,
+  ];
+
+  widths.forEach((width, columnIndex) => {
+    styleRequests.push({
+      updateTableColumnProperties: {
+        tableStartLocation: { index: tableStartIndex },
+        columnIndices: [columnIndex],
+        tableColumnProperties: {
+          width: { magnitude: Number(width), unit: 'PT' }
+        },
+        fields: 'width'
+      }
+    });
+  });
+
+  // Жирный заголовок.
+  const headerCells = table.tableRows && table.tableRows[0]
+    ? (table.tableRows[0].tableCells || [])
+    : [];
+  headerCells.forEach(cell => {
+    const range = dnpDocsCellTextRange_(cell);
+    if (!range) return;
+    styleRequests.push({
+      updateTextStyle: {
+        range: range,
+        textStyle: { bold: true },
+        fields: 'bold'
+      }
+    });
+  });
+
+  // Жирный итог и выравнивание подписи справа.
+  const totalRow = table.tableRows && table.tableRows[lastRowIndex]
+    ? table.tableRows[lastRowIndex]
+    : null;
+  if (totalRow && totalRow.tableCells && totalRow.tableCells.length >= 6) {
+    const labelRange = dnpDocsCellTextRange_(totalRow.tableCells[0]);
+    const amountRange = dnpDocsCellTextRange_(totalRow.tableCells[5]);
+
+    [labelRange, amountRange].forEach(range => {
+      if (!range) return;
+      styleRequests.push({
+        updateTextStyle: {
+          range: range,
+          textStyle: { bold: true },
+          fields: 'bold'
+        }
+      });
+    });
+
+    if (labelRange) {
+      styleRequests.push({
+        updateParagraphStyle: {
+          range: labelRange,
+          paragraphStyle: { alignment: 'END' },
+          fields: 'alignment'
+        }
+      });
+    }
+
+    // Объединяем первые пять ячеек последней строки, как в старой версии.
+    styleRequests.push({
+      mergeTableCells: {
+        tableRange: {
+          tableCellLocation: {
+            tableStartLocation: { index: tableStartIndex },
+            rowIndex: lastRowIndex,
+            columnIndex: 0
+          },
+          rowSpan: 1,
+          columnSpan: 5
+        }
+      }
+    });
+  }
+
+  dnpDocsBatchUpdate_(documentId, styleRequests);
+}
+
 function createReceiptTemplate() { return createReceiptTemplateForCurrentFormat(); }
 
 function createReceiptTemplateForCurrentFormat() {
@@ -708,16 +1047,7 @@ function createReceiptTemplateForCurrentFormat() {
   appProperties[DNP_TEMPLATE_APP_PROPERTY] = '1';
   const file = dnpDriveCreateGoogleDoc_(name, root, appProperties);
 
-  const doc = DocumentApp.openById(file.id);
-  const body = doc.getBody();
-  body.clear();
-  body.appendParagraph('ДНП «Дачный поселок «КОМФОРТ»').setAlignment(DocumentApp.HorizontalAlignment.CENTER).editAsText().setBold(true);
-  body.appendParagraph('');
-  body.appendParagraph('Участок № {{PLOT}}    {{MONTH_NAME}} {{YEAR}} года').setAlignment(DocumentApp.HorizontalAlignment.CENTER);
-  body.appendParagraph('Сумма оплаты: {{TOTAL}} руб.').setAlignment(DocumentApp.HorizontalAlignment.CENTER).editAsText().setBold(true);
-  body.appendParagraph('');
-  body.appendParagraph('{{PAYMENT_TABLE}}');
-  doc.saveAndClose();
+  dnpDocsWriteDefaultTemplate_(file.id);
 
   saveTemplateId_(file.id);
   showDriveLinkDialog_('Шаблон создан', name, dnpDriveDocUrl_(file));
@@ -752,50 +1082,9 @@ function openReceiptTemplate() {
   showDriveLinkDialog_('Шаблон квитанции', file.name, dnpDriveDocUrl_(file));
 }
 
-function applyPaymentTableColumnWidths_(table) {
-  const widths = [
-    DNP_PAYMENT_TABLE_WIDTHS.name,
-    DNP_PAYMENT_TABLE_WIDTHS.current,
-    DNP_PAYMENT_TABLE_WIDTHS.previous,
-    DNP_PAYMENT_TABLE_WIDTHS.usage,
-    DNP_PAYMENT_TABLE_WIDTHS.rate,
-    DNP_PAYMENT_TABLE_WIDTHS.amount,
-  ];
-  for (let rowIndex = 0; rowIndex < table.getNumRows(); rowIndex++) {
-    const row = table.getRow(rowIndex);
-    for (let columnIndex = 0; columnIndex < row.getNumCells() && columnIndex < widths.length; columnIndex++) {
-      row.getCell(columnIndex).setWidth(widths[columnIndex]);
-    }
-  }
-}
 
-function insertPaymentTotalRow_(body, index, total) {
-  const labelWidth =
-    DNP_PAYMENT_TABLE_WIDTHS.name +
-    DNP_PAYMENT_TABLE_WIDTHS.current +
-    DNP_PAYMENT_TABLE_WIDTHS.previous +
-    DNP_PAYMENT_TABLE_WIDTHS.usage +
-    DNP_PAYMENT_TABLE_WIDTHS.rate;
 
-  // Итог вынесен в отдельную таблицу из двух ячеек. DocumentApp.merge()
-  // при экспорте в PDF сохраняет объединённой ячейке ширину только первого
-  // столбца и ломает сетку всей таблицы. Отдельная строка даёт тот же вид:
-  // слева объединённая ширина столбцов 1–5, справа ровно шестой столбец.
-  const totalTable = body.insertTable(index, [[
-    'ИТОГО К ОПЛАТЕ',
-    formatReceiptMoney_(total) + ' руб.',
-  ]]);
-  const totalRow = totalTable.getRow(0);
-  const labelCell = totalRow.getCell(0);
-  const amountCell = totalRow.getCell(1);
 
-  labelCell.setWidth(labelWidth);
-  amountCell.setWidth(DNP_PAYMENT_TABLE_WIDTHS.amount);
-  labelCell.editAsText().setBold(true);
-  amountCell.editAsText().setBold(true);
-  labelCell.getChild(0).asParagraph()
-    .setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
-}
 
 function generatePdfsForMonth(year, month, password) {
   requireOperationPassword_(password);
@@ -837,9 +1126,7 @@ function generatePdfsForMonth(year, month, password) {
       );
       tempFileId = tempFile.id;
 
-      const doc = DocumentApp.openById(tempFileId);
-      fillReceiptTemplate_(doc, receipt);
-      doc.saveAndClose();
+      fillReceiptTemplate_(tempFileId, receipt);
 
       const pdfBlob = dnpDriveExportPdf_(tempFileId, fileName);
       dnpDriveCreateBlobFile_(monthFolder, fileName, pdfBlob, DNP_DRIVE_PDF_MIME);
@@ -978,40 +1265,20 @@ function buildReceiptData_(sheet, block, year, month, rates, previousDecemberRea
   return { plot: block.plot, year, month, monthName: getRussianMonthName_(month), total, paymentRows };
 }
 
-function fillReceiptTemplate_(doc, receipt) {
-  const body = doc.getBody();
-  replaceReceiptText_(body, '{{PLOT}}', receipt.plot);
-  replaceReceiptText_(body, '{{YEAR}}', receipt.year);
-  replaceReceiptText_(body, '{{MONTH}}', String(receipt.month).padStart(2, '0'));
-  replaceReceiptText_(body, '{{MONTH_NAME}}', receipt.monthName);
-  replaceReceiptText_(body, '{{TOTAL}}', formatReceiptMoney_(receipt.total));
-  insertPaymentTable_(body, receipt.paymentRows, receipt.total);
+function fillReceiptTemplate_(documentId, receipt) {
+  const replacements = {
+    '{{PLOT}}': String(receipt.plot == null ? '' : receipt.plot),
+    '{{YEAR}}': String(receipt.year == null ? '' : receipt.year),
+    '{{MONTH}}': String(receipt.month).padStart(2, '0'),
+    '{{MONTH_NAME}}': String(receipt.monthName == null ? '' : receipt.monthName),
+    '{{TOTAL}}': formatReceiptMoney_(receipt.total),
+  };
+
+  dnpDocsReplaceAllText_(documentId, replacements);
+  dnpDocsInsertPaymentTable_(documentId, receipt.paymentRows || [], receipt.total);
 }
 
-function insertPaymentTable_(body, paymentRows, total) {
-  const found = body.findText('\\{\\{PAYMENT_TABLE\\}\\}');
-  if (!found) {
-    throw new Error('В Google Docs-шаблоне не найден маркер {{PAYMENT_TABLE}}.');
-  }
 
-  const paragraph = found.getElement().asText().getParent().asParagraph();
-  const index = body.getChildIndex(paragraph);
-  const rows = [[
-    'Наименование платежа',
-    'Текущее',
-    'Предыдущее',
-    'Объём',
-    'Тариф',
-    'Сумма к оплате',
-  ]].concat(paymentRows);
-
-  const table = body.insertTable(index, rows);
-  insertPaymentTotalRow_(body, index + 1, total);
-  paragraph.editAsText().setText('');
-
-  table.getRow(0).editAsText().setBold(true);
-  applyPaymentTableColumnWidths_(table);
-}
 
 function getReceiptTemplateFile_() {
   const templateId = getStoredTemplateId_();
